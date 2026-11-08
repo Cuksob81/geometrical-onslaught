@@ -646,3 +646,18 @@ body.GateOn #UiLayer { visibility:hidden; }
 .Pick:disabled { cursor:not-allowed; }
 @media (max-height:520px) { .PCode { font-size:28px; } .HubCard { padding:10px; } .HubCard span { display:none; } }
 .PRow .BScore { display:flex; align-items:center; gap:6px; white-space:nowrap; } .PRow .BScore svg { flex:none; }
+
+.Warn { padding:8px 12px; border-radius:10px; background:rgba(138,106,31,.22); border:1px solid #8a6a1f; color:#ffc857; font-size:13px; font-weight:700; }
+#UpBadge { position:fixed; left:50%; bottom:calc(64px + env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:8; display:none; font:700 15px inherit; font-family:inherit; color:#07131a; background:linear-gradient(135deg,#c77dff,#e7c9ff); border:0; border-radius:999px; padding:10px 20px; cursor:pointer; box-shadow:0 0 0 0 rgba(199,125,255,.6); animation:PlayPulse 1.8s infinite; }
+#UiLayer.On.Light { background:transparent; align-items:flex-end; pointer-events:none; padding-bottom:max(12px,env(safe-area-inset-bottom)); }
+#UiLayer.Light .Box { pointer-events:auto; background:rgba(12,15,36,.92); border:1px solid #2a3166; border-radius:18px; padding:12px 14px; }
+#UiLayer.Light .Box h2 { margin:0; font-size:20px; } #UiLayer.Light .Box p { margin:2px 0 8px; font-size:13px; }
+.TreeScroll { max-height:min(62vh,560px); overflow:auto; padding:2px; }
+.TreeGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 10px; }
+.TreeCol { display:flex; flex-direction:column; gap:6px; } .TreeHead { font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--Dim); padding:2px 4px; border-bottom:1px solid #2a3166; }
+.TNode { font:inherit; color:var(--Ink); text-align:left; display:flex; flex-direction:column; gap:2px; padding:8px 10px; border-radius:10px; border:1px solid #2a3166; background:rgba(21,26,54,.85); cursor:pointer; position:relative; }
+.TNode.Child { margin-left:12px; } .TNode.Child::before { content:''; position:absolute; left:-12px; top:-8px; bottom:50%; width:12px; border-left:2px solid #2a3166; border-bottom:2px solid #2a3166; border-bottom-left-radius:8px; pointer-events:none; }
+.TNode.Can { border-color:var(--Amber); box-shadow:0 0 12px rgba(255,200,87,.25); } .TNode.Lock { opacity:.45; } .TNode:hover { transform:translateY(-1px); }
+.TName { font-weight:700; font-size:14px; display:flex; justify-content:space-between; gap:6px; } .TName b { color:var(--Cyan); font-size:12px; }
+.TEff { font-size:12px; color:var(--Dim); } .TCost { font-size:12px; font-weight:700; color:var(--Amber); }
+@media (max-height:520px) { .TreeScroll { max-height:60vh; } .TNode { padding:5px 8px; } .TEff { display:none; } #UpBadge { bottom:calc(84px + env(safe-area-inset-bottom)); } }

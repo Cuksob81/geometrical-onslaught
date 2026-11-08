@@ -285,20 +285,20 @@ const ObjOrder = ['slay', 'gather', 'elite', 'zone'];
 function StartRound(){
  const Cfg = Modes[ModeKey];
  RoundTime = Cfg.RoundLen; Diff = 1 + (Round - 1) * Cfg.Step; SpawnTimer = .5; ObjKills = 0;
- Enemies = Enemies.filter(En => !En.Elite); Crystals = []; Zone = null;
+ Enemies = Enemies.filter(En => !En.Elite); Crystals = []; Zone = null; NewDungeon();
  const Type = ObjOrder[(Round - 1) % 4];
  Obj = {Type, Have: 0, Need: 1, Done: false};
 
  if(Type === 'slay') Obj.Need = Math.round(22 + Round * 7);
  if(Type === 'gather'){
   Obj.Need = 5;
-  for(let I = 0; I < 5; I++) Crystals.push({X: RandRange(150, Arena - 150), Y: RandRange(150, Arena - 150), Phase: RandRange(0, Tau)});
+  for(let I = 0; I < 5; I++) Crystals.push(Object.assign(RandFloor(), {Phase: RandRange(0, Tau)}));
  }
  if(Type === 'elite') SpawnEnemy(4, true);
  if(Type === 'zone'){
   Obj.Need = 22 + Round * 2;
   const A = RandRange(0, Tau);
-  Zone = {X: Clamp(Player.X + Math.cos(A) * 450, 200, Arena - 200), Y: Clamp(Player.Y + Math.sin(A) * 450, 200, Arena - 200), R: 140};
+  Zone = ZonePlace();
  }
 
  const Boss = Round % 5 === 0;
@@ -351,12 +351,7 @@ function PickType(){
 
 function SpawnEnemy(Kind, Elite){
  const Type = EnemyTypes[Kind];
- let X = 0, Y = 0;
- for(let Try = 0; Try < 8; Try++){
-  const A = RandRange(0, Tau), D = RandRange(520, 680);
-  X = Clamp(Player.X + Math.cos(A) * D, 20, Arena - 20); Y = Clamp(Player.Y + Math.sin(A) * D, 20, Arena - 20);
-  if(Math.hypot(X - Player.X, Y - Player.Y) > 380) break;
- }
+ const SP = SpawnPoint(), X = SP.X, Y = SP.Y;
  const HpMul = Elite ? .45 : 1, Size = Elite ? .75 : 1, Spawn = Kind === 4 ? 1.2 : .6;
  Enemies.push({
   Kind, X, Y, Elite: !!Elite,
@@ -428,7 +423,7 @@ function KillEnemy(En){
  const Type = EnemyTypes[En.Kind], Xp = Type.XpValue * (En.Elite ? 3 : 1) * (1 + (Diff - 1) * .25) * (1 + Stats.ExperienceBonus);
  const Pieces = En.Kind === 4 ? 8 : 1;
  for(let I = 0; I < Pieces; I++){
-  if(Pickups.length > 200){GainXp(Xp / Pieces); continue}
+  if(Pickups.length > 200){PartyXp(NearT(En.X, En.Y), Xp / Pieces); continue}
   const Angle = RandRange(0, Tau);
   Pickups.push({X: En.X, Y: En.Y, Vx: Math.cos(Angle) * 90, Vy: Math.sin(Angle) * 90, Value: Xp / Pieces, Phase: RandRange(0, Tau)});
  }
@@ -526,7 +521,6 @@ Ui.addEventListener('click', Ev => {
  const Button = Ev.target.closest('button'); if(!Button) return;
  PlaySfx('Shop');
  const Data = Button.dataset;
- if(IsGuest() && (Data.pick !== undefined || Data.act === 'reroll')){GuestPick(Data); return}
  if(Data.pick !== undefined && Mode === 'level'){
   ApplyOffer(Offers[+Data.pick]); Pending--;
   if(Pending > 0){Offers = RollOffers(); RenderLevel(true)}
@@ -573,8 +567,7 @@ function ShowMenu(){
  const Hints = InputMode === 'touch'
   ? '<span class="Hint"><kbd>Left stick</kbd>move</span><span class="Hint"><kbd>Right stick</kbd>aim + fire</span><span class="Hint"><kbd>Button</kbd>auto-aim</span>'
   : '<span class="Hint"><kbd>WASD</kbd>move</span><span class="Hint"><kbd>Mouse</kbd>aim</span><span class="Hint"><kbd>Click</kbd>or<kbd style="margin-left:4px">Space</kbd>fire</span><span class="Hint"><kbd>Shift</kbd>dash</span><span class="Hint"><kbd>E</kbd>nova</span><span class="Hint"><kbd>Q</kbd>auto-aim</span><span class="Hint"><kbd>P</kbd>pause</span><span class="Hint"><kbd>Enter</kbd>play</span>';
-const WS = Workshop.map(W => {const L = Meta.Up[W.Key] || 0, C = WorkshopCost(L, W), Mx = W.Max || 5, Max = L >= Mx, Can = !Max && Meta.Shards >= C;
-  return `<button class="Pick WsCard ${Can ? '' : 'Dim'}" title="${W.Perk} (per level, max ${Mx})" style="--Chip:#ffc857" data-up="${W.Key}"><span class="PName"><span class="WGlyph">${W.Glyph}</span>${W.Name}</span><span class="PSub">${W.Perk}</span><span class="PBest">${'●'.repeat(L)}${'○'.repeat(Mx - L)}</span><span class="WsCost">${Max ? 'MAX' : '◆ ' + C}</span></button>`}).join('');
+const WS = TreeHtml();
  const MutDef = {Glass: ['Glass Cannon', 'Half max HP, +60% damage'], Heavy: ['Heavy Core', '-25% move speed, +35% damage'], Frenzy: ['Frenzy', '+50% fire rate, -25% max HP'], Swarm: ['Swarm', 'Waves grow 25% harder'], Fast: ['Fast Foes', 'Enemies move 25% faster'], Armored: ['Armored', 'Enemies +40% HP, you gain +30% XP'], Volatile: ['Volatile', 'Dying enemies blast you within 90px'], Elite: ['Elite Rush', 'A tough elite spawns every 25s'], Blood: ['Blood Pact', 'Drain 1.5% HP/s (cancels regen), heal 1.2% per kill'], NoRegen: ['No Regen', 'All health regeneration disabled']};
  const MutChips = Object.keys(MutDef).map(K => `<button class="Pick ${Mut[K] ? 'Sel' : ''}" style="--Chip:#ff5d73" data-mut="${K}"><span class="PName">${MutDef[K][0]}</span><span class="PSub">${MutDef[K][1]}</span></button>`).join('');
  const Bst = Best[SelMode] ? ' · best <b>' + FormatTime(Best[SelMode]) + '</b>' : '';
@@ -588,10 +581,10 @@ const WS = Workshop.map(W => {const L = Meta.Up[W.Key] || 0, C = WorkshopCost(L,
   ${JoinCard()}
   ${MenuNote ? '<div class="Note">' + MenuNote + '</div>' : ''}
  </div>
- <div class="MPanels Tab_${MenuTab}"><div class="Tabs Rise" style="--d:1"><button class="TabBtn ${MenuTab === 'shop' ? 'On' : ''}" data-tab="shop">Workshop</button><button class="TabBtn ${MenuTab === 'rank' ? 'On' : ''}" data-tab="rank">Ranking</button></div>
+ <div class="MPanels Tab_${MenuTab}"><div class="Tabs Rise" style="--d:1"><button class="TabBtn ${MenuTab === 'shop' ? 'On' : ''}" data-tab="shop">Upgrade Tree</button><button class="TabBtn ${MenuTab === 'rank' ? 'On' : ''}" data-tab="rank">Ranking</button></div>
   <div class="Panel Rise T-run" style="--d:2"><div class="PTitle">Mode</div><div class="PGrid3">${ModeCards}</div></div>
   <div class="Panel Rise T-run" style="--d:3"><div class="PTitle">Starting element</div><div class="PGrid2">${ElemCards}</div></div>
-  <div class="Panel Rise T-shop" style="--d:4"><div class="PTitle">Workshop <b style="float:right;color:var(--Amber)">◆ ${Meta.Shards} shards</b></div><div class="PGrid3 WsScroll">${WS}</div></div>
+  <div class="Panel Rise T-shop" style="--d:4"><div class="PTitle">Infinite upgrade tree <b style="float:right;color:var(--Amber)">◆ ${Meta.Shards} shards</b></div><div class="TreeScroll">${WS}</div></div>
   <div class="Panel Rise T-mut" style="--d:5"><div class="PTitle">Mutators <b style="float:right;color:var(--Coral)">+20% shards each</b></div><div class="PGrid2 WsScroll">${MutChips}</div></div>
  <div class="Panel Rise T-rank" style="--d:2">${BoardHtml()}</div>
  </div>
@@ -629,7 +622,7 @@ function SnapshotRun(){
     V: SaveVersion, SavedAt: Date.now(), Over: false,
     ModeKey, SelElem, AutoAim, HordeT, LastObjType,
     Round, Rounds, RoundTime, Diff, SpawnTimer, Time, Pending, Rerolls, Shots, LastElem, ObjKills,
-    Obj, Player, Stats, Elem, RunStats, Enemies, EnemyBolts, Pickups, Crystals, Zone, Camera, Offers,
+    Obj, Player, Stats, Elem, RunStats, Enemies, EnemyBolts, Pickups, Crystals, Zone, Camera, Offers, DSeed: Dg.Seed, DOpen: Dg.Chests.map(C => C.Open ? 1 : 0),
     Bolts: Bolts.map(B => ({...B, Hit: []}))
   };
 }
@@ -660,6 +653,9 @@ function LoadRun(ModeName){
     Pickups = S.Pickups || []; Crystals = S.Crystals || []; Zone = S.Zone || null;
     Camera = S.Camera || {X: Player.X, Y: Player.Y}; Offers = S.Offers || [];
     Particles = []; Texts = []; ActiveBanner = null; Shake = 0; HpView = Player.Hp;
+    GenDungeon(S.DSeed ?? ((Math.random() * 2 ** 31) | 0)); Dg.Seen.fill(0); (S.DOpen || []).forEach((V, I) => {if(Dg.Chests[I]) Dg.Chests[I].Open = !!V});
+    for(const O of [Player, ...Enemies, ...Pickups, ...Crystals, ...(Zone ? [Zone] : [])]){const Pq = Place(O.X, O.Y); O.X = Pq.X; O.Y = Pq.Y}
+    Camera = {X: Player.X, Y: Player.Y}; FlowUpdate();
     Mode = 'play'; Ui.className = '';
     Pause(); /* resume into the pause screen so the player is never dropped into live combat */
     return true;
@@ -875,7 +871,7 @@ function PickObjective(){
 StartRound = function(){
   const Cfg = Modes[ModeKey], Boss = Round % 5 === 0;
   RoundTime = Cfg.RoundLen; Diff = DiffNow(); SpawnTimer = .5; ObjKills = 0;
-  Enemies = Enemies.filter(En => !En.Elite); Crystals = []; Zone = null;
+  Enemies = Enemies.filter(En => !En.Elite); Crystals = []; Zone = null; NewDungeon();
   const Type = Boss ? 'boss' : PickObjective();
   LastObjType = Type;
   Obj = {Type, Have: 0, Need: 1, Done: false};
@@ -883,13 +879,13 @@ StartRound = function(){
   if(Type === 'gather' || Type === 'ambush'){
     Obj.Need = Type === 'ambush' ? 4 : 5;
     if(Type === 'ambush'){Obj.Type = 'gather'; Obj.Ambush = true; Obj.Seen = 0}
-    for(let I = 0; I < Obj.Need; I++) Crystals.push({X: RandRange(150, Arena - 150), Y: RandRange(150, Arena - 150), Phase: RandRange(0, Tau)});
+    for(let I = 0; I < Obj.Need; I++) Crystals.push(Object.assign(RandFloor(), {Phase: RandRange(0, Tau)}));
   }
   if(Type === 'elite') SpawnEnemy(4, true);
   if(Type === 'zone'){
     Obj.Need = 22 + Round * 2;
     const A = RandRange(0, Tau);
-    Zone = {X: Clamp(Player.X + Math.cos(A) * 450, 200, Arena - 200), Y: Clamp(Player.Y + Math.sin(A) * 450, 200, Arena - 200), R: 140};
+    Zone = ZonePlace();
   }
   if(Type === 'survive') Obj.Need = Math.round(Cfg.RoundLen * .7);
   if(Type === 'flawless') Obj.Need = Math.min(45, 16 + Round * 2);
@@ -986,12 +982,14 @@ addEventListener('pointerup', Ev => {if(Ev.pointerType === 'mouse') Trigger = fa
 addEventListener('pointercancel', Ev => {if(Ev.pointerType === 'mouse') Trigger = false});
 
 addEventListener('keydown', Ev => {
+ const Tgt = Ev.target; if(Tgt && (Tgt.tagName === 'INPUT' || Tgt.tagName === 'TEXTAREA' || Tgt.tagName === 'SELECT' || Tgt.isContentEditable)) return;
  const Key = Ev.key.toLowerCase();
  if(Key === 'm' && !Ev.repeat){ToggleSound(); return}
  if(('wasd'.includes(Key) && Key.length === 1) || Key.startsWith('arrow')){InputMode = 'key'; Keys[Key] = 1; Ev.preventDefault()}
  else if(Key === 'shift' && !Ev.repeat) Dash();
  else if(Key === 'e' && !Ev.repeat) Nova();
  else if(Key === ' ' && Mode === 'play'){Keys[' '] = 1; Ev.preventDefault()}
+ else if(Key === 'u' && !Ev.repeat && Party.On) PartyUpgradeToggle();
  else if(Key === 'q' && Mode === 'play') AutoAim = !AutoAim;
  else if(Key === 'enter' && !Ev.repeat && (Mode === 'menu' || Mode === 'over')){const Go = Ui.querySelector('[data-act="play"]'); if(Go){Ev.preventDefault(); Go.click()}}
  else if((Key === 'p' || Key === 'escape') && !Ev.repeat) Pause();
@@ -1006,8 +1004,7 @@ function Update(Dt){
  if(Joys.Move){Mx += Joys.Move.Dx / JoyRadius; My += Joys.Move.Dy / JoyRadius}
  let Len = Math.hypot(Mx, My); if(Len > 1){Mx /= Len; My /= Len; Len = 1}
  const Speed = Player.Down ? 0 : EffSpeed();
- Player.X = Clamp(Player.X + (Mx * Speed + Player.KnockX) * Dt, PlayerRadius, Arena - PlayerRadius);
- Player.Y = Clamp(Player.Y + (My * Speed + Player.KnockY) * Dt, PlayerRadius, Arena - PlayerRadius);
+ MoveW(Player, (Mx * Speed + Player.KnockX) * Dt, (My * Speed + Player.KnockY) * Dt, PlayerRadius);
  Player.KnockX *= Math.max(0, 1 - 9 * Dt); Player.KnockY *= Math.max(0, 1 - 9 * Dt);
  Player.Inv -= Dt; Player.Recoil = Math.max(0, Player.Recoil - Dt * 8);
  Player.Hp = Player.Down ? 0 : Math.min(Stats.MaximumHealth, Player.Hp + Stats.Regeneration * Dt);
@@ -1055,7 +1052,7 @@ function Update(Dt){
   if(En.StunT > 0) Spd = 0;
   if(En.Kind === 3){if(Dist < 170) Spd = -Spd * .7; else if(Dist < 230) Spd = 0}
   if(En.Kind === 1) En.Rot = Math.atan2(Dy, Dx) + Math.PI / 2;
-  En.X = Clamp(En.X + (Dx / Dist * Spd + En.KnockX) * Dt, 10, Arena - 10); En.Y = Clamp(En.Y + (Dy / Dist * Spd + En.KnockY) * Dt, 10, Arena - 10);
+  const Cv = ChaseVec(En, Dx, Dy, Dist); MoveW(En, (Cv.X * Spd + En.KnockX) * Dt, (Cv.Y * Spd + En.KnockY) * Dt, Math.min(En.Radius * .7, 22));
   En.KnockX *= Math.max(0, 1 - 7 * Dt); En.KnockY *= Math.max(0, 1 - 7 * Dt);
   if(En.Kind >= 3 && En.StunT <= 0){
    En.Cooldown -= Dt;
@@ -1085,8 +1082,7 @@ function Update(Dt){
   if(Dist < Reach + 2) HurtPlayer(A.Damage, A);
   if(Dist < Reach && Mode !== 'dying'){
    const Over = Reach - Dist, MassA = A.Radius * A.Radius, PlayerShare = MassA / (MassA + PlayerRadius * PlayerRadius * 1.5);
-   Player.X = Clamp(Player.X + Dx / Dist * Over * PlayerShare, PlayerRadius, Arena - PlayerRadius);
-   Player.Y = Clamp(Player.Y + Dy / Dist * Over * PlayerShare, PlayerRadius, Arena - PlayerRadius);
+   MoveW(Player, Dx / Dist * Over * PlayerShare, Dy / Dist * Over * PlayerShare, PlayerRadius);
    A.X -= Dx / Dist * Over * (1 - PlayerShare); A.Y -= Dy / Dist * Over * (1 - PlayerShare);
   }
  }
@@ -1118,15 +1114,15 @@ function Update(Dt){
  }
  if(Mode === 'dying') return;
  Enemies = Enemies.filter(En => En.Hp > 0);
- Bolts = Bolts.filter(Bt => Bt.Life > 0 && Bt.X > 0 && Bt.X < Arena && Bt.Y > 0 && Bt.Y < Arena);
- EnemyBolts = EnemyBolts.filter(Eb => Eb.Life > 0);
+ Bolts = Bolts.filter(Bt => Bt.Life > 0 && !Solid(Bt.X, Bt.Y));
+ EnemyBolts = EnemyBolts.filter(Eb => Eb.Life > 0 && !Solid(Eb.X, Eb.Y));
 
  /* experience orbs */
  for(const Pk of Pickups){
   Pk.X += Pk.Vx * Dt; Pk.Y += Pk.Vy * Dt; Pk.Vx *= 1 - 5 * Dt; Pk.Vy *= 1 - 5 * Dt;
   const Tg = NearT(Pk.X, Pk.Y), Dx = Tg.X - Pk.X, Dy = Tg.Y - Pk.Y, Dist = Math.hypot(Dx, Dy) || 1;
   if(Dist < Tg.S.PickupRange){Pk.X += Dx / Dist * 340 * Dt; Pk.Y += Dy / Dist * 340 * Dt}
-  if(Dist < PlayerRadius + 4){GainXp(Pk.Value); Pk.Value = 0; Burst(Tg.X, Tg.Y, '#4ff0d6', 3, 90, .3)}
+  if(Dist < PlayerRadius + 4){PartyXp(Tg, Pk.Value); Pk.Value = 0; Burst(Tg.X, Tg.Y, '#4ff0d6', 3, 90, .3)}
  }
  Pickups = Pickups.filter(Pk => Pk.Value > 0);
  if(Pending > 0 && Mode === 'play') OpenLevel();
@@ -1153,17 +1149,7 @@ function Draw(){
  if(!Player){DrawAttract(); return}
  const Sx = RandRange(-1, 1) * Shake * (ShakeOn ? 1 : 0), Sy = RandRange(-1, 1) * Shake * (ShakeOn ? 1 : 0);
  Context.setTransform(Dpr * Zoom, 0, 0, Dpr * Zoom, Dpr * (Width / 2 - Camera.X * Zoom + Sx), Dpr * (Height / 2 - Camera.Y * Zoom + Sy));
- Context.fillStyle = '#10152e'; Context.fillRect(0, 0, Arena, Arena);
-
- /* four element corners, tinted softly */
- const Half = Arena / 2;
- ElemNames.forEach((N, I) => {Context.fillStyle = Elems[N].Color + '10'; Context.fillRect((I % 2) * Half, Math.floor(I / 2) * Half, Half, Half)});
-
- Context.strokeStyle = '#1a2146'; Context.lineWidth = 1; Context.beginPath();
- for(let I = 0; I <= Arena; I += 50){Context.moveTo(I, 0); Context.lineTo(I, Arena); Context.moveTo(0, I); Context.lineTo(Arena, I)}
- Context.stroke();
- for(const Dt of Dots){Context.globalAlpha = .25 + .2 * Math.sin(Time * 1.5 + Dt.Phase); Context.fillStyle = '#4ff0d6'; Context.beginPath(); Context.arc(Dt.X, Dt.Y, Dt.Size, 0, Tau); Context.fill()}
- Context.globalAlpha = 1; Context.strokeStyle = '#4ff0d6'; Context.lineWidth = 3; Context.strokeRect(0, 0, Arena, Arena);
+ DrawDungeon();
 
  if(Zone){
   Context.globalAlpha = .12 + .05 * Math.sin(Time * 3); Context.fillStyle = '#ffc857'; Poly(Zone.X, Zone.Y, Zone.R, 0); Context.fill();
@@ -1276,7 +1262,7 @@ function DrawHud(){
  Context.textAlign = 'left'; Context.font = '700 17px "Chakra Petch",sans-serif'; Context.fillText('Round ' + Round + (Rounds ? '/' + Rounds : ''), 16, BarY + 14);
  Context.fillStyle = Obj.Done ? '#1eff00' : '#ffc857'; Context.font = '700 13px "Chakra Petch",sans-serif'; Context.fillText(ObjectiveText(), 16, BarY + 32);
  Context.fillStyle = '#4ff0d6'; Context.fillText('Lv ' + Player.Level, 16, BarY + 50);
- DrawPartyHud(BarY);
+ DrawPartyHud(BarY); DrawMinimap();
  const Dc = Math.max(0, Player.DashCd || 0);
  Context.fillStyle = '#ffffff22'; Context.fillRect(16, BarY + 58, 64, 4);
  Context.fillStyle = Dc > 0 ? '#8f98c8' : '#4ff0d6'; Context.fillRect(16, BarY + 58, 64 * (1 - Dc / DashMax()), 4);
@@ -1401,8 +1387,8 @@ const WorkshopCost = (L, W) => Math.round(([15, 30, 50, 80, 120][L] ?? 0) * (W.M
 const NewRunV3 = NewRun;
 NewRun = function(){
  NewRunV3();
- const U = Meta.Up; Stats.MaximumHealth += 10 * (U.Vigor || 0); Player.Hp = Stats.MaximumHealth;
- Player.Mut = Object.assign({}, Mut); Player.Diff = SelDiff; FillStats(); EliteT = 20; Stats.Damage += (U.Might || 0); Stats.Regeneration += .25 * (U.Regen || 0); Stats.Evasion += .015 * (U.Dodge || 0); Stats.BlastRadius += 8 * (U.Blast || 0); Elem[SelElem] += (U.Prime || 0); Stats.Defense += (U.Plate || 0); Stats.MovementSpeed *= 1 + .04 * (U.Thrust || 0); Stats.PickupRange += 20 * (U.Magnet || 0); Stats.ExperienceBonus += .06 * (U.Scholar || 0); Stats.Luck += .04 * (U.Fortune || 0); Stats.Lifesteal += .005 * (U.Leech || 0); Pending += (U.Head || 0); Stats.FireRate *= 1 + .05 * (U.Haste || 0); Rerolls += (U.Spare || 0);
+ Player.Mut = Object.assign({}, Mut); Player.Diff = SelDiff; FillStats(); EliteT = 20;
+ ApplyTree();
  if(RM().Glass){Stats.MaximumHealth = Math.round(Stats.MaximumHealth * .5); Player.Hp = Stats.MaximumHealth; Stats.Damage *= 1.6}
  if(RM().NoRegen) Stats.Regeneration = 0;
  if(RM().Heavy){Stats.MovementSpeed *= .75; Stats.Damage *= 1.35}
@@ -1430,7 +1416,7 @@ KillEnemy = function(En){KillEnemyV3(En);
 const GameOverV3 = GameOver;
 GameOver = function(Won){
  const Prev = Best[ModeKey] || 0, Score = Math.floor(RunStats.Time);
- LastGain = Math.max(1, Math.round((RunStats.Kills / 8 + Round * 4 + RunStats.Time / 30 + (Won ? 25 : 0)) * (1 + .2 * Object.values(RM()).filter(Boolean).length) * (1 + .05 * (Meta.Up.Banker || 0)) * RunDiff().Shards));
+ LastGain = Math.max(1, Math.round((RunStats.Kills / 8 + Round * 4 + RunStats.Time / 30 + (Won ? 25 : 0)) * (1 + .2 * Object.values(RM()).filter(Boolean).length) * (1 + TreeVal('Banker')) * RunDiff().Shards));
  Meta.Shards += LastGain; SaveMeta();
  const Mk = ModeKey, Rd = Round, Lv = Player.Level, Kl = RunStats.Kills, Tm = FormatTime(RunStats.Time), El = SelElem;
  GameOverV3(Won);
@@ -1444,8 +1430,7 @@ Ui.addEventListener('click', Ev => {
  const B = Ev.target.closest('button'); if(!B) return;
  const D = B.dataset;
  if(D.up){
-  const W = Workshop.find(X => X.Key === D.up), L = Meta.Up[D.up] || 0, C = W ? WorkshopCost(L, W) : 0;
-  if(W && L < (W.Max || 5) && Meta.Shards >= C){Meta.Shards -= C; Meta.Up[D.up] = L + 1; SaveMeta()}
+  for(let K = 0; K < (Ev.shiftKey ? 10 : 1); K++) if(!TreeBuy(D.up)) break;
   ShowMenu(); Ev.stopImmediatePropagation();
  }else if(D.act === 'shake'){
   ShakeOn = !ShakeOn; StorageSet('ShapeSwarmShake', ShakeOn ? '1' : '0'); ShowMenu(); Ev.stopImmediatePropagation();
@@ -1597,7 +1582,7 @@ function TraitTick(Dt){
    En.TT = (En.TT ?? 4) - Dt;
    if(En.TT <= 0 && Enemies.length < 120){
     En.TT = 5.5; Ring(En.X, En.Y, En.Color, 120, .5);
-    for(let I = 0; I < 3; I++){SpawnEnemy(1); const M = Enemies[Enemies.length - 1]; M.X = Clamp(En.X + RandRange(-70, 70), 20, Arena - 20); M.Y = Clamp(En.Y + RandRange(-70, 70), 20, Arena - 20); M.SpawnLeft = M.SpawnTotal = .4}
+    for(let I = 0; I < 3; I++){SpawnEnemy(1); const M = Enemies[Enemies.length - 1]; const Pp = Place(En.X + RandRange(-70, 70), En.Y + RandRange(-70, 70)); M.X = Pp.X; M.Y = Pp.Y; M.SpawnLeft = M.SpawnTotal = .4}
    }
   }else if(false){
    En.SpinA = (En.SpinA || 0) + Dt * 1.8; En.SW = (En.SW ?? 0) - Dt;
@@ -1637,8 +1622,8 @@ function ElemIcon(N, Px){
  return `<svg class="ElemIco" width="${Px}" height="${Px}" viewBox="0 0 24 24" fill="currentColor" style="color:${Elems[N].Color}">${P}</svg>`;
 }
 const GearBtn = () => ({X: Width - 138 - 44, Y: SafeTop + 48, W: 36, H: 32});
-const DashMax = () => (1.6 - .15 * (Meta.Up.Quick || 0)) * (1 - Math.min(.5, (Stats && Stats.DashHaste) || 0));
-const NovaMax = () => 14 - 1.5 * (Meta.Up.NovaC || 0);
+const DashMax = () => Math.max(.4, 1.6 - TreeVal('Quick')) * (1 - Math.min(.5, (Stats && Stats.DashHaste) || 0));
+const NovaMax = () => Math.max(4, 14 - TreeVal('NovaC'));
 function FillStats(){if(!Stats) return; for(const K of ['DamageMult', 'Execute', 'DashHaste', 'NovaPower', 'OrbHeal', 'EnemySpeed']) if(typeof Stats[K] !== 'number') Stats[K] = 0}
 Items.push(
  Item('Overdrive', '✹', 'DamageMult', .08, {IsPct: 1, Unit: 'Damage Bonus'}),
@@ -1813,8 +1798,8 @@ function BossTick(En, Dt){
   if(A === 'ring' || A === 'burst') for(let I = 0; I < N; I++) BossShot(En, I / N * Tau + Ang);
   else if(A === 'volley') for(let I = -2; I <= 2; I++) BossShot(En, Ang + I * .18);
   else if(A === 'shield'){En.Shield = En.MaxHp * .2; Ring(En.X, En.Y, '#4fb4ff', En.Radius * 2.4, .4)}
-  else if(A === 'summon'){Ring(En.X, En.Y, En.Color, 120, .5); for(let I = 0; I < (Ph2 ? 5 : 3) && Enemies.length < 120; I++){SpawnEnemy(1); const M = Enemies[Enemies.length - 1]; M.X = Clamp(En.X + RandRange(-70, 70), 20, Arena - 20); M.Y = Clamp(En.Y + RandRange(-70, 70), 20, Arena - 20); M.SpawnLeft = M.SpawnTotal = .4}}
-  else if(A === 'blink'){Ring(En.X, En.Y, En.Color, 80, .4); const T = RandRange(0, Tau); En.X = Clamp(Player.X + Math.cos(T) * 230, 40, Arena - 40); En.Y = Clamp(Player.Y + Math.sin(T) * 230, 40, Arena - 40); Ring(En.X, En.Y, En.Color, 80, .4); for(let I = 0; I < 8; I++) BossShot(En, I / 8 * Tau)}
+  else if(A === 'summon'){Ring(En.X, En.Y, En.Color, 120, .5); for(let I = 0; I < (Ph2 ? 5 : 3) && Enemies.length < 120; I++){SpawnEnemy(1); const M = Enemies[Enemies.length - 1]; const Pp = Place(En.X + RandRange(-70, 70), En.Y + RandRange(-70, 70)); M.X = Pp.X; M.Y = Pp.Y; M.SpawnLeft = M.SpawnTotal = .4}}
+  else if(A === 'blink'){Ring(En.X, En.Y, En.Color, 80, .4); const T = RandRange(0, Tau); const Bp = Place(Player.X + Math.cos(T) * 230, Player.Y + Math.sin(T) * 230); En.X = Bp.X; En.Y = Bp.Y; Ring(En.X, En.Y, En.Color, 80, .4); for(let I = 0; I < 8; I++) BossShot(En, I / 8 * Tau)}
   En.CastT = .9;
  }
 }
@@ -1833,7 +1818,7 @@ const FirebaseConfig = {
 };
 /* providers: any of google, github, password (each must be enabled in Firebase Authentication).
    appCheckSiteKey: optional reCAPTCHA v3 site key to stop other sites/bots from using your Firebase project. */
-const FirebaseOptions = {providers: ['google', 'github', 'password'], appCheckSiteKey: '', turnServers: []};
+const FirebaseOptions = {providers: ['google', 'github', 'password'], appCheckSiteKey: '', turnServers: [], turnUrl: ''};
 const FbReady = !!(FirebaseConfig.apiKey && FirebaseConfig.projectId);
 const FbBase = 'https://www.gstatic.com/firebasejs/10.14.1/';
 let Fb = null, Acct = null, CloudState = '', CloudLast = 0, CloudSnap = '', CloudBusy = false;
@@ -2160,7 +2145,7 @@ TraitTick = function(Dt){
  if(EventKey === 'Overcharge') Player.Cooldown -= Dt * .3;
  if(EventKey === 'Meteors'){
   MeteorT -= Dt;
-  if(MeteorT <= 0){MeteorT = RandRange(.8, 1.5) / Math.max(1, RunDiff().Pressure * .9); const J = Math.random() < .55 ? 90 : 320; Meteor.push({X: Clamp(Player.X + RandRange(-J, J), 40, Arena - 40), Y: Clamp(Player.Y + RandRange(-J, J), 40, Arena - 40), T: 1.1, R: 70})}
+  if(MeteorT <= 0){MeteorT = RandRange(.8, 1.5) / Math.max(1, RunDiff().Pressure * .9); const J = Math.random() < .55 ? 90 : 320; {const Mp = Place(Player.X + RandRange(-J, J), Player.Y + RandRange(-J, J)); Meteor.push({X: Mp.X, Y: Mp.Y, T: 1.1, R: 70})}}
  }
  for(const M of Meteor){
   M.T -= Dt;
@@ -2175,15 +2160,212 @@ TraitTick = function(Dt){
  if(GoblinT <= 0 && Round >= 2 && !Enemies.some(E => E.Goblin)){GoblinT = RandRange(45, 70); SpawnGoblin()}
  for(const G of Enemies) if(G.Goblin && G.SpawnLeft <= 0){
   const Dx = G.X - Player.X, Dy = G.Y - Player.Y, L = Math.hypot(Dx, Dy) || 1;
-  G.X = Clamp(G.X + Dx / L * 170 * Dt, 30, Arena - 30); G.Y = Clamp(G.Y + Dy / L * 170 * Dt, 30, Arena - 30); G.Life -= Dt;
+  MoveW(G, Dx / L * 170 * Dt, Dy / L * 170 * Dt, 14); G.Life -= Dt;
   if(G.Life <= 0){G.Hp = -1; Enemies = Enemies.filter(E => E !== G); FloatText(G.X, G.Y, 'ESCAPED', '#8f98c8')}
  }
 };
 const KillEnemyV10 = KillEnemy;
 KillEnemy = function(En){
  KillEnemyV10(En);
- if(En.Goblin){GainXp(30 + Round * 6); Meta.Shards += 2; SaveMeta(); FloatText(En.X, En.Y - 20, '+2 ◆ LOOT!', '#ffd54a'); Burst(En.X, En.Y, '#ffd54a', 24, 300, .6); Ring(En.X, En.Y, '#ffd54a', 70, .4)}
+ if(En.Goblin){PartyXpAll(30 + Round * 6); Meta.Shards += 2; SaveMeta(); FloatText(En.X, En.Y - 20, '+2 ◆ LOOT!', '#ffd54a'); Burst(En.X, En.Y, '#ffd54a', 24, 300, .6); Ring(En.X, En.Y, '#ffd54a', 70, .4)}
 };
+
+/* ---------- v12: procedural dungeon (rooms, corridors, chests, minimap) ---------- */
+const TS = 60, GN = Arena / TS, Dirs4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const Dg = {Seed: 0, Gen: 0, Grid: new Uint8Array(GN * GN), Rooms: [], Floors: [], Dist: new Int16Array(GN * GN).fill(-1), Chests: [], Seen: new Uint8Array(GN * GN), FlowT: 0, Q: new Int16Array(GN * GN)};
+const MakeRng = Seed => {let A = Seed >>> 0; return () => {A = (A + 0x6D2B79F5) >>> 0; let T = Math.imul(A ^ (A >>> 15), 1 | A); T = (T + Math.imul(T ^ (T >>> 7), 61 | T)) ^ T; return ((T ^ (T >>> 14)) >>> 0) / 4294967296}};
+const TileOf = (X, Y) => Math.floor(Y / TS) * GN + Math.floor(X / TS);
+const Solid = (X, Y) => X < 0 || Y < 0 || X >= Arena || Y >= Arena || !Dg.Grid[TileOf(X, Y)];
+const HitW = (X, Y, R) => Solid(X - R, Y - R) || Solid(X + R, Y - R) || Solid(X - R, Y + R) || Solid(X + R, Y + R);
+function MoveW(O, Dx, Dy, R){const NX = O.X + Dx; if(!HitW(NX, O.Y, R)) O.X = NX; const NY = O.Y + Dy; if(!HitW(O.X, NY, R)) O.Y = NY}
+function BuildDungeon(Seed){
+ const R = MakeRng(Seed), G = new Uint8Array(GN * GN), Rooms = [], Ri = (A, B) => A + Math.floor(R() * (B - A + 1));
+ for(let Try = 0; Try < 260 && Rooms.length < 12; Try++){
+  const W = Ri(6, 10), H = Ri(6, 10), X = Ri(2, GN - W - 3), Y = Ri(2, GN - H - 3);
+  if(Rooms.some(Q => X < Q.x + Q.w + 2 && X + W + 2 > Q.x && Y < Q.y + Q.h + 2 && Y + H + 2 > Q.y)) continue;
+  Rooms.push({x: X, y: Y, w: W, h: H, cx: X + W / 2, cy: Y + H / 2});
+ }
+ if(Rooms.length < 6) return null;
+ for(const Q of Rooms) for(let Y = Q.y; Y < Q.y + Q.h; Y++) for(let X = Q.x; X < Q.x + Q.w; X++) G[Y * GN + X] = 1;
+ const Carve = (X, Y) => {for(let Dy = 0; Dy < 2; Dy++) for(let Dx = 0; Dx < 2; Dx++){const NX = X + Dx, NY = Y + Dy; if(NX > 0 && NY > 0 && NX < GN - 1 && NY < GN - 1) G[NY * GN + NX] = 1}};
+ const Link = (A, B) => {
+  let X = Math.floor(A.cx), Y = Math.floor(A.cy); const TX = Math.floor(B.cx), TY = Math.floor(B.cy);
+  if(R() < .5){while(X !== TX){Carve(X, Y); X += Math.sign(TX - X)} while(Y !== TY){Carve(X, Y); Y += Math.sign(TY - Y)}}
+  else{while(Y !== TY){Carve(X, Y); Y += Math.sign(TY - Y)} while(X !== TX){Carve(X, Y); X += Math.sign(TX - X)}}
+  Carve(X, Y);
+ };
+ for(let I = 1; I < Rooms.length; I++){let B = 0, BD = 1e9; for(let J = 0; J < I; J++){const D = Math.abs(Rooms[I].cx - Rooms[J].cx) + Math.abs(Rooms[I].cy - Rooms[J].cy); if(D < BD){BD = D; B = J}} Link(Rooms[I], Rooms[B])}
+ for(let K = 0; K < 3; K++){const A = Rooms[Ri(0, Rooms.length - 1)], B = Rooms[Ri(0, Rooms.length - 1)]; if(A !== B) Link(A, B)}
+ for(let I = 1; I < Rooms.length; I++){
+  const Q = Rooms[I]; if(Q.w < 8 || Q.h < 8) continue;
+  for(let K = 0; K < 2; K++){
+   const PX = Ri(Q.x + 2, Q.x + Q.w - 4), PY = Ri(Q.y + 2, Q.y + Q.h - 4);
+   if(Math.abs(PX - Math.floor(Q.cx)) < 3 || Math.abs(PY - Math.floor(Q.cy)) < 3) continue;
+   for(let Dy = 0; Dy < 2; Dy++) for(let Dx = 0; Dx < 2; Dx++) G[(PY + Dy) * GN + PX + Dx] = 0;
+  }
+ }
+ const Chests = [];
+ for(let I = 1; I < Rooms.length; I++){
+  const Q = Rooms[I], N = (Q.w * Q.h >= 70 ? 2 : 1) * (R() < .7 ? 1 : 0);
+  for(let K = 0; K < N; K++){const X = Ri(Q.x + 1, Q.x + Q.w - 2), Y = Ri(Q.y + 1, Q.y + Q.h - 2); if(G[Y * GN + X]) Chests.push({X: (X + .5) * TS, Y: (Y + .5) * TS, Open: false})}
+ }
+ return {G, Rooms, Chests};
+}
+function GenDungeon(Seed){
+ let B = null; for(let K = 0; K < 30 && !B; K++) B = BuildDungeon((Seed + K * 977) | 0);
+ if(!B) B = BuildDungeon(12345);
+ Dg.Grid = B.G; Dg.Rooms = B.Rooms; Dg.Chests = B.Chests; Dg.Seed = Seed; Dg.Gen++;
+ Dg.Floors = []; for(let I = 0; I < GN * GN; I++) if(Dg.Grid[I]) Dg.Floors.push(I);
+}
+const StartPos = I => {const Q = Dg.Rooms[0], A = I * 1.7; return {X: Q.cx * TS + Math.cos(A) * 34, Y: Q.cy * TS + Math.sin(A) * 34}};
+function Place(X, Y){
+ if(!HitW(X, Y, 10)) return {X, Y};
+ const I = TileOf(Clamp(X, 1, Arena - 1), Clamp(Y, 1, Arena - 1)), TX = I % GN, TY = Math.floor(I / GN);
+ for(let R = 1; R < 9; R++) for(let Oy = -R; Oy <= R; Oy++) for(let Ox = -R; Ox <= R; Ox++){
+  if(Math.max(Math.abs(Ox), Math.abs(Oy)) !== R) continue; const NX = TX + Ox, NY = TY + Oy;
+  if(NX >= 0 && NY >= 0 && NX < GN && NY < GN && Dg.Grid[NY * GN + NX]) return {X: (NX + .5) * TS, Y: (NY + .5) * TS};
+ }
+ return StartPos(0);
+}
+function RandFloor(){const Qs = Dg.Rooms.slice(1), Q = Qs.length ? Qs[Math.floor(Math.random() * Qs.length)] : Dg.Rooms[0]; return Place((Q.x + 1 + Math.random() * (Q.w - 2)) * TS, (Q.y + 1 + Math.random() * (Q.h - 2)) * TS)}
+function ZonePlace(){const Qs = Dg.Rooms.slice(1), Q = Qs.length ? Qs[Math.floor(Math.random() * Qs.length)] : Dg.Rooms[0]; return {X: Q.cx * TS, Y: Q.cy * TS, R: Math.min(140, Math.min(Q.w, Q.h) * TS * .36)}}
+function FlowUpdate(){
+ const D = Dg.Dist, Q = Dg.Q; D.fill(-1); let H = 0, T = 0;
+ const Src = []; if(Player && !Player.Down) Src.push(Player); for(const R of Party.Remotes) if(R.Alive) Src.push(R.P);
+ for(const P of Src){const I = TileOf(P.X, P.Y); if(I >= 0 && I < GN * GN && Dg.Grid[I] && D[I] < 0){D[I] = 0; Q[T++] = I}}
+ while(H < T){const I = Q[H++], X = I % GN, Y = (I - X) / GN, Dd = D[I] + 1; for(const [Ox, Oy] of Dirs4){const NX = X + Ox, NY = Y + Oy; if(NX < 0 || NY < 0 || NX >= GN || NY >= GN) continue; const J = NY * GN + NX; if(Dg.Grid[J] && D[J] < 0){D[J] = Dd; Q[T++] = J}}}
+}
+function LineClear(X0, Y0, X1, Y1){const Dx = X1 - X0, Dy = Y1 - Y0, L = Math.hypot(Dx, Dy); if(L > 900) return false; const N = Math.ceil(L / 24); for(let I = 1; I < N; I++) if(Solid(X0 + Dx * I / N, Y0 + Dy * I / N)) return false; return true}
+function ChaseVec(En, Dx, Dy, Dist){
+ if(Dist < 90 || LineClear(En.X, En.Y, En.X + Dx, En.Y + Dy)) return {X: Dx / Dist, Y: Dy / Dist};
+ const I = TileOf(En.X, En.Y); if(I < 0 || I >= GN * GN || Dg.Dist[I] < 0) return {X: Dx / Dist, Y: Dy / Dist};
+ const TX = I % GN, TY = (I - TX) / GN; let Best = Dg.Dist[I], BX = 0, BY = 0;
+ for(let Oy = -1; Oy <= 1; Oy++) for(let Ox = -1; Ox <= 1; Ox++){
+  if(!Ox && !Oy) continue; const NX = TX + Ox, NY = TY + Oy; if(NX < 0 || NY < 0 || NX >= GN || NY >= GN) continue;
+  const Dd = Dg.Dist[NY * GN + NX]; if(Dd < 0 || Dd >= Best) continue; if(Ox && Oy && (!Dg.Grid[TY * GN + NX] || !Dg.Grid[NY * GN + TX])) continue;
+  Best = Dd; BX = Ox; BY = Oy;
+ }
+ if(!BX && !BY) return {X: Dx / Dist, Y: Dy / Dist};
+ const CX = (TX + BX + .5) * TS - En.X, CY = (TY + BY + .5) * TS - En.Y, L = Math.hypot(CX, CY) || 1; return {X: CX / L, Y: CY / L};
+}
+function SpawnPoint(){
+ const Ts = []; if(Player && !Player.Down) Ts.push(Player); for(const R of Party.Remotes) if(R.Alive) Ts.push(R.P); if(!Ts.length && Player) Ts.push(Player);
+ let Best = null, BS = -1e9;
+ for(let K = 0; K < 40; K++){
+  const I = Dg.Floors[Math.floor(Math.random() * Dg.Floors.length)], X = (I % GN + .5) * TS + RandRange(-22, 22), Y = (Math.floor(I / GN) + .5) * TS + RandRange(-22, 22);
+  let Dm = 1e9; for(const T of Ts) Dm = Math.min(Dm, Math.hypot(X - T.X, Y - T.Y));
+  const Ok = Dm > 420 && Dm < 950 && Dg.Dist[I] >= 0, Score = Ok ? 1000 - Math.abs(Dm - 600) : -Math.abs(Dm - 600);
+  if(Score > BS){BS = Score; Best = {X, Y}} if(Ok && K > 8) break;
+ }
+ return Best || StartPos(0);
+}
+function NewDungeon(Seed){
+ GenDungeon(Seed === undefined ? (Math.random() * 2 ** 31) | 0 : Seed); Dg.Seen.fill(0);
+ if(Party.On && Party.Host) Party.DGen = (Party.DGen || 0) + 1;
+ const Ps = [Player, ...Party.Remotes.map(R => R.P)]; Ps.forEach((P, I) => {if(!P) return; const S = StartPos(I); P.X = S.X; P.Y = S.Y; P.KnockX = 0; P.KnockY = 0});
+ for(const R of Party.Remotes){R.In.x = R.P.X; R.In.y = R.P.Y}
+ Camera.X = Player.X; Camera.Y = Player.Y; Pickups = []; Bolts = []; EnemyBolts = []; Meteor = []; FlowUpdate();
+ for(const En of Enemies){const P = SpawnPoint(); En.X = P.X; En.Y = P.Y}
+}
+function MarkSeen(P){const TX = Math.floor(P.X / TS), TY = Math.floor(P.Y / TS); for(let Oy = -7; Oy <= 7; Oy++) for(let Ox = -7; Ox <= 7; Ox++){const X = TX + Ox, Y = TY + Oy; if(X >= 0 && Y >= 0 && X < GN && Y < GN && Ox * Ox + Oy * Oy <= 50) Dg.Seen[Y * GN + X] = 1}}
+function OpenChest(C, W){
+ C.Open = true; Ring(C.X, C.Y, '#ffd54a', 60, .4); Burst(C.X, C.Y, '#ffd54a', 18, 240, .6); PlaySfx('Kill');
+ const Pos = W.R ? W.R.P : Player, Mh = W.R ? W.R.S.MaximumHealth : Stats.MaximumHealth, Roll = Math.random();
+ if(Roll < .28){Pos.Hp = Math.min(Mh, Pos.Hp + Mh * .35); FloatText(C.X, C.Y - 20, '+35% HP', '#7dffa6')}
+ else if(Roll < .58){const V = 18 + Round * 5; PartyXp(W.R ? {R: W.R} : null, V); FloatText(C.X, C.Y - 20, '+' + V + ' XP', '#4ff0d6')}
+ else if(Roll < .80){if(W.R) W.R.Pending++; else Pending++; FloatText(C.X, C.Y - 20, '+1 UPGRADE', '#c77dff')}
+ else{const N = 1 + Math.floor(Math.random() * 3); if(W.R) PartySend(W.R.Uid, {t: 'loot', sh: N}); else{Meta.Shards += N; SaveMeta()} FloatText(C.X, C.Y - 20, '+' + N + ' ◆', '#ffd54a')}
+}
+function DungeonTick(Dt){
+ Dg.FlowT -= Dt; if(Dg.FlowT <= 0){Dg.FlowT = .2; FlowUpdate(); MarkSeen(Player)}
+ for(const En of Enemies) if(HitW(En.X, En.Y, 2)){const P = Place(En.X, En.Y); En.X = P.X; En.Y = P.Y}
+ if(HitW(Player.X, Player.Y, 2)){const P = Place(Player.X, Player.Y); Player.X = P.X; Player.Y = P.Y}
+ for(const C of Dg.Chests){
+  if(C.Open) continue; let W = null;
+  if(!Player.Down && Math.hypot(C.X - Player.X, C.Y - Player.Y) < 32) W = {};
+  else for(const R of Party.Remotes) if(R.Alive && Math.hypot(C.X - R.P.X, C.Y - R.P.Y) < 32){W = {R}; break}
+  if(W) OpenChest(C, W);
+ }
+}
+function DrawDungeon(){
+ const HW = Width / 2 / Zoom + TS, HH = Height / 2 / Zoom + TS;
+ Context.fillStyle = '#070918'; Context.fillRect(Camera.X - HW, Camera.Y - HH, HW * 2, HH * 2);
+ const X0 = Math.max(0, Math.floor((Camera.X - HW) / TS)), X1 = Math.min(GN - 1, Math.ceil((Camera.X + HW) / TS)), Y0 = Math.max(0, Math.floor((Camera.Y - HH) / TS)), Y1 = Math.min(GN - 1, Math.ceil((Camera.Y + HH) / TS));
+ const Gd = Dg.Grid, At = (X, Y) => X >= 0 && Y >= 0 && X < GN && Y < GN && Gd[Y * GN + X];
+ for(let Y = Y0; Y <= Y1; Y++) for(let X = X0; X <= X1; X++){
+  if(Gd[Y * GN + X]){Context.fillStyle = (X + Y) & 1 ? '#141a3a' : '#111638'; Context.fillRect(X * TS, Y * TS, TS, TS)}
+  else if(At(X - 1, Y) || At(X + 1, Y) || At(X, Y - 1) || At(X, Y + 1) || At(X - 1, Y - 1) || At(X + 1, Y - 1) || At(X - 1, Y + 1) || At(X + 1, Y + 1)){
+   Context.fillStyle = '#232b5c'; Context.fillRect(X * TS, Y * TS, TS, TS); Context.fillStyle = '#323d80'; Context.fillRect(X * TS, Y * TS, TS, 5);
+  }
+ }
+ Context.strokeStyle = '#1b2250'; Context.lineWidth = 1; Context.beginPath();
+ for(let Y = Y0; Y <= Y1; Y++) for(let X = X0; X <= X1; X++) if(Gd[Y * GN + X]){Context.moveTo(X * TS, Y * TS); Context.lineTo((X + 1) * TS, Y * TS); Context.moveTo(X * TS, Y * TS); Context.lineTo(X * TS, (Y + 1) * TS)}
+ Context.stroke();
+ for(const C of Dg.Chests){
+  if(Math.abs(C.X - Camera.X) > HW || Math.abs(C.Y - Camera.Y) > HH) continue;
+  if(!C.Open){Context.globalAlpha = .22 + .12 * Math.sin(Time * 3); Context.fillStyle = '#ffd54a'; Poly(C.X, C.Y, 28, 0); Context.fill(); Context.globalAlpha = 1}
+  Context.fillStyle = C.Open ? '#5a4a1a' : '#ffd54a'; Context.fillRect(C.X - 13, C.Y - 9, 26, 18); Context.fillStyle = C.Open ? '#3a2f10' : '#b8870a'; Context.fillRect(C.X - 13, C.Y - 9, 26, 6);
+  if(!C.Open){Context.fillStyle = '#fff8'; Context.fillRect(C.X - 2, C.Y - 3, 4, 7)}
+ }
+}
+function DrawMinimap(){
+ if(!Player || Mode === 'dying') return;
+ const S = 3, X0 = Width - GN * S - 12, Y0 = SafeTop + 120;
+ Context.globalAlpha = .8; Context.fillStyle = '#080a18'; Context.fillRect(X0 - 3, Y0 - 3, GN * S + 6, GN * S + 6);
+ Context.fillStyle = '#2a3370'; for(let Y = 0; Y < GN; Y++) for(let X = 0; X < GN; X++){const I = Y * GN + X; if(Dg.Seen[I] && Dg.Grid[I]) Context.fillRect(X0 + X * S, Y0 + Y * S, S, S)}
+ const Dot = (X, Y, C, R) => {Context.fillStyle = C; Context.fillRect(X0 + X / TS * S - R, Y0 + Y / TS * S - R, R * 2, R * 2)};
+ for(const C of Dg.Chests) if(!C.Open && Dg.Seen[TileOf(C.X, C.Y)]) Dot(C.X, C.Y, '#ffd54a', 1.5);
+ for(const C of Crystals) if(!C.Got) Dot(C.X, C.Y, '#ffc857', 1.5);
+ if(Zone) Dot(Zone.X, Zone.Y, '#ffc857', 3);
+ for(const O of (Party.Host ? Party.Remotes.map(R => R.P) : Party.Others)) Dot(O.X, O.Y, '#ffffff', 1.5);
+ Dot(Player.X, Player.Y, '#4ff0d6', 2); Context.globalAlpha = 1; Context.strokeStyle = '#2a3370'; Context.lineWidth = 1; Context.strokeRect(X0 - 3, Y0 - 3, GN * S + 6, GN * S + 6);
+}
+const TraitTickDG = TraitTick;
+TraitTick = function(Dt){TraitTickDG(Dt); if(Player && Mode === 'play') DungeonTick(Dt)};
+GenDungeon(1);
+
+/* ---------- v12: infinite upgrade tree (replaces the Workshop) ---------- */
+const Tree = [
+ {K: 'Vigor', N: 'Vigor', B: 'Survival', Per: 10, U: ' max HP', Base: 12, Req: null},
+ {K: 'Plate', N: 'Plating', B: 'Survival', Per: .6, U: ' defense', Base: 14, Req: ['Vigor', 3]},
+ {K: 'Regen', N: 'Regeneration', B: 'Survival', Per: .2, U: ' HP/s', Base: 16, Req: ['Plate', 3], Cap: 4},
+ {K: 'Dodge', N: 'Evasion', B: 'Survival', Per: .012, P: 1, Base: 20, Req: ['Regen', 3], Cap: .4},
+ {K: 'Leech', N: 'Leech', B: 'Survival', Per: .004, P: 1, Base: 18, Req: ['Vigor', 5], Cap: .12},
+ {K: 'Might', N: 'Might', B: 'Offense', Per: .5, U: ' damage', Base: 14, Req: null},
+ {K: 'Haste', N: 'Haste', B: 'Offense', Per: .03, P: 1, Base: 18, Req: ['Might', 3], Cap: .9},
+ {K: 'Blast', N: 'Blast Core', B: 'Offense', Per: 6, U: ' blast radius', Base: 16, Req: ['Haste', 3], Cap: 140},
+ {K: 'Prime', N: 'Prime', B: 'Offense', Per: .25, U: ' start element levels', Base: 30, Req: ['Might', 6], Int: 1},
+ {K: 'Thrust', N: 'Thrusters', B: 'Utility', Per: .025, P: 1, Base: 12, Req: null, Cap: .7},
+ {K: 'Magnet', N: 'Magnet', B: 'Utility', Per: 15, U: ' pickup range', Base: 10, Req: ['Thrust', 3], Cap: 300},
+ {K: 'Scholar', N: 'Scholar', B: 'Utility', Per: .04, P: 1, Base: 14, Req: ['Magnet', 3], Cap: 1},
+ {K: 'Fortune', N: 'Fortune', B: 'Utility', Per: .03, P: 1, Base: 16, Req: ['Scholar', 3], Cap: .6},
+ {K: 'Banker', N: 'Banker', B: 'Utility', Per: .04, P: 1, Base: 18, Req: ['Fortune', 3], Cap: 1},
+ {K: 'Quick', N: 'Quickstep', B: 'Skills', Per: .1, U: 's dash cooldown', Base: 12, Req: null, Cap: 1.1},
+ {K: 'NovaC', N: 'Nova Core', B: 'Skills', Per: 1, U: 's nova cooldown', Base: 14, Req: ['Quick', 3], Cap: 9},
+ {K: 'Spare', N: 'Rerolls', B: 'Skills', Per: .34, U: ' extra rerolls', Base: 22, Req: ['Quick', 4], Int: 1},
+ {K: 'Head', N: 'Head Start', B: 'Skills', Per: .25, U: ' upgrade at run start', Base: 40, Req: ['NovaC', 3], Int: 1}
+];
+const TreeBy = Object.fromEntries(Tree.map(N => [N.K, N]));
+const EffLv = L => L <= 10 ? L : 10 + 6 * Math.log2(1 + (L - 10) / 6);
+const TreeAt = (N, L) => {let V = N.Per * EffLv(L); if(N.Int) V = Math.floor(V + 1e-9); if(N.Cap !== undefined) V = Math.min(N.Cap, V); return V};
+const TreeVal = K => TreeAt(TreeBy[K], (Meta.Up && Meta.Up[K]) || 0);
+const TreeCost = (N, L) => Math.round(N.Base * Math.pow(1.24, L));
+const TreeOpen = N => !N.Req || ((Meta.Up[N.Req[0]] || 0) >= N.Req[1]);
+function TreeBuy(K){const N = TreeBy[K]; if(!N) return false; const L = Meta.Up[K] || 0, C = TreeCost(N, L); if(!TreeOpen(N) || Meta.Shards < C) return false; Meta.Shards -= C; Meta.Up[K] = L + 1; SaveMeta(); return true}
+function ApplyTree(){
+ const V = K => TreeVal(K);
+ Stats.MaximumHealth += V('Vigor'); Player.Hp = Stats.MaximumHealth; Stats.Defense += V('Plate'); Stats.Regeneration += V('Regen');
+ Stats.Evasion = Math.min(StatCaps.Evasion, Stats.Evasion + V('Dodge')); Stats.Lifesteal = Math.min(StatCaps.Lifesteal, Stats.Lifesteal + V('Leech'));
+ Stats.Damage += V('Might'); Stats.FireRate *= 1 + V('Haste'); Stats.BlastRadius += V('Blast'); Elem[SelElem] += V('Prime');
+ Stats.MovementSpeed *= 1 + V('Thrust'); Stats.PickupRange += V('Magnet'); Stats.ExperienceBonus += V('Scholar'); Stats.Luck += V('Fortune');
+ Rerolls += V('Spare'); Pending += V('Head');
+}
+function TreeNode(N){
+ const L = Meta.Up[N.K] || 0, Open = TreeOpen(N), C = TreeCost(N, L), Can = Open && Meta.Shards >= C;
+ const Fmt = V => N.P ? '+' + (V * 100).toFixed(V * 100 < 10 ? 1 : 0) + '%' : '+' + (N.Int ? V : +V.toFixed(2)) + (N.U || '');
+ return `<button class="TNode ${N.Req ? 'Child' : ''} ${Open ? '' : 'Lock'} ${Can ? 'Can' : ''}" data-up="${N.K}" title="${N.N} · Shift-click buys 10"><span class="TName">${N.N}<b>Lv ${L}</b></span><span class="TEff">${Fmt(TreeAt(N, L))} → ${Fmt(TreeAt(N, L + 1))}</span><span class="TCost">${Open ? '◆ ' + C : 'Needs ' + TreeBy[N.Req[0]].N + ' ' + N.Req[1]}</span></button>`;
+}
+function TreeHtml(){return `<div class="TreeGrid">${['Survival', 'Offense', 'Utility', 'Skills'].map(B => `<div class="TreeCol"><div class="TreeHead">${B}</div>${Tree.filter(N => N.B === B).map(TreeNode).join('')}</div>`).join('')}</div>`}
 
 /* ---------- v11: multiplayer — party-based online co-op (host-authoritative, WebRTC) ----------
    The host runs the whole game for up to 4 players; guests send inputs and draw what the host sends.
@@ -2193,8 +2375,16 @@ const IsGuest = () => Party.On && !Party.Host;
 const SafeName = T => String(T || '').replace(/[^A-Za-z0-9 _.\-]/g, '').trim().slice(0, 16) || 'Player';
 const CodeChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MakeCode = () => Array.from({length: 6}, () => CodeChars[Math.floor(Math.random() * CodeChars.length)]).join('');
-const IceCfg = () => ({iceServers: window.__ICE || [{urls: 'stun:stun.cloudflare.com:3478'}].concat(FirebaseOptions.turnServers || [])});
-const CleanUp = U => {const O = {}; for(const W of Workshop){const V = U && Number.isFinite(U[W.Key]) ? Math.floor(U[W.Key]) : 0; if(V > 0) O[W.Key] = Math.min(W.Max || 5, V)} return O};
+let IceCache = null, IceAt = 0;
+async function GetIce(){
+ if(window.__ICE) return {iceServers: window.__ICE};
+ const Base = {iceServers: [{urls: 'stun:stun.cloudflare.com:3478'}].concat(FirebaseOptions.turnServers || [])};
+ if(!FirebaseOptions.turnUrl) return Base;
+ if(IceCache && Date.now() - IceAt < 3600e3) return IceCache;
+ try{const R = await fetch(FirebaseOptions.turnUrl, {method: 'POST'}), J = await R.json(); if(J && Array.isArray(J.iceServers) && J.iceServers.length){IceCache = {iceServers: J.iceServers}; IceAt = Date.now(); return IceCache}}catch(Err){}
+ return Base;
+}
+const CleanUp = U => {const O = {}; for(const N of Tree){const V = U && Number.isFinite(U[N.K]) ? Math.floor(U[N.K]) : 0; if(V > 0) O[N.K] = Math.min(300, V)} return O};
 const FreshCfg = () => ({name: (Acct ? PublicName() : 'My') + ' party', public: false, max: 4, mode: SelMode, diff: SelDiff, mut: Object.assign({}, Mut)});
 
 /* ----- multi-target helpers used by the patched simulation ----- */
@@ -2209,9 +2399,9 @@ const RemoteBy = U => Party.Remotes.find(R => R.Uid === U) || null;
 const CamT = () => Player.Down ? ((Party.Host ? (Party.Remotes.find(R => R.Alive) || {}).P : Party.Others.find(O => O.Al)) || Player) : Player;
 var CurOwner = null;
 function AsPlayer(R, Fn){
- const sP = Player, sS = Stats, sE = Elem, sL = LastElem, sA = Aim, sO = CurOwner, sM = Muting;
- Player = R.P; Stats = R.S; Elem = R.E; LastElem = R.Last || LastElem; Aim = R.In.a || 0; CurOwner = R.Uid; Muting = true;
- try{return Fn()}finally{R.Last = LastElem; Player = sP; Stats = sS; Elem = sE; LastElem = sL; Aim = sA; CurOwner = sO; Muting = sM}
+ const sP = Player, sS = Stats, sE = Elem, sL = LastElem, sA = Aim, sO = CurOwner, sM = Muting, sU = Meta.Up;
+ Player = R.P; Stats = R.S; Elem = R.E; LastElem = R.Last || LastElem; Aim = R.In.a || 0; CurOwner = R.Uid; Muting = true; if(R.Up) Meta.Up = R.Up;
+ try{return Fn()}finally{R.Last = LastElem; Player = sP; Stats = sS; Elem = sE; LastElem = sL; Aim = sA; CurOwner = sO; Muting = sM; Meta.Up = sU}
 }
 function HurtRemote(R, Amount, Src){
  if(!R.Alive || R.P.Inv > 0 || Mode !== 'play') return;
@@ -2239,10 +2429,8 @@ PlayerDie = function(){
  if(Party.On && Party.Host && Party.Remotes.some(R => R.Alive)){Player.Down = true; Player.Hp = 0; Player.Inv = 99; Burst(Player.X, Player.Y, '#ff5d73', 30, 240, .7); Ring(Player.X, Player.Y, '#ff5d73', 80, .5); FloatText(Player.X, Player.Y - 30, 'DOWN', '#ff5d73'); return}
  PlayerDiePM();
 };
-const GainXpPM = GainXp;
-GainXp = function(V){const P0 = Pending; GainXpPM(V); if(Party.On && Party.Host){const D = Pending - P0; if(D > 0) for(const R of Party.Remotes) R.Pending += D}};
 const OpenLevelPM = OpenLevel;
-OpenLevel = function(){OpenLevelPM(); if(Party.On && Party.Host) PartyOffers()};
+OpenLevel = function(){if(Party.On){PartyUpgradeAuto(); return} OpenLevelPM()};
 const StartRoundPM = StartRound;
 StartRound = function(){StartRoundPM(); if(Party.Ready){ReviveAll(); PartySaveNow()}};
 const ShowBannerPM = ShowBanner;
@@ -2264,34 +2452,54 @@ Nova = function(){
 const PausePM = Pause;
 Pause = function(){
  if(!Party.On) return PausePM();
- if(Party.MenuOpen){Party.MenuOpen = false; Ui.className = ''} else if(Mode === 'play'){Party.MenuOpen = true; RenderPause()}
+ if(Party.MenuOpen){Party.MenuOpen = false; Ui.className = ''} else if(Mode === 'play'){Party.MenuOpen = true; Party.UpOpen = false; RenderPause()}
 };
 
-/* ----- level-ups: every player picks their own upgrade; the world waits for everyone ----- */
-function PartyOffers(){
- for(const R of Party.Remotes) if(R.Pending > 0 && !R.Offers){R.Offers = AsPlayer(R, RollOffers); R.WaitT = 0; PartySend(R.Uid, {t: 'offers', o: R.Offers, p: R.Pending, rr: R.Rerolls, lv: Player.Level})}
-}
-function HostLevelDone(){
- if(Party.On && Party.Host && Party.Remotes.some(R => R.Pending > 0)){
-  Party.Wait = true; Ui.className = 'On';
-  Ui.innerHTML = '<div class="Box"><h2>Waiting for your party…</h2><p>' + HtmlEsc(Party.Remotes.filter(R => R.Pending > 0).map(R => R.Name).join(', ')) + ' still choosing an upgrade.</p></div>'; return;
- }
- Party.Wait = false; Mode = 'play'; Ui.className = ''; if(Party.On && Party.Host) PartyBroadcast({t: 'resume'});
+/* ----- upgrades: every player levels on their own and picks when they like; the game never pauses ----- */
+const RemoteXp = (R, V) => {const sP = Pending; Pending = R.Pending; try{AsPlayer(R, () => GainXp(V))}finally{R.Pending = Pending; Pending = sP}};
+function PartyXp(Tg, V){if(Tg && Tg.R) RemoteXp(Tg.R, V); else GainXp(V)}
+function PartyXpAll(V){GainXp(V); for(const R of Party.Remotes) RemoteXp(R, V)}
+function HostLevelDone(){Mode = 'play'; Ui.className = ''}
+function PartyOffersFor(R){
+ if(R.Pending > 0){R.Offers = AsPlayer(R, RollOffers); PartySend(R.Uid, {t: 'offers', o: R.Offers, p: R.Pending, rr: R.Rerolls})}
+ else{R.Offers = null; PartySend(R.Uid, {t: 'offers', o: [], p: 0, rr: R.Rerolls})}
 }
 function HostPick(U, I){
  const R = RemoteBy(U); if(!R || !R.Offers || !R.Offers[I] || R.Pending <= 0) return;
  AsPlayer(R, () => ApplyOffer(R.Offers[I])); R.Pending--; R.Offers = null;
- PartySend(U, {t: 'self', S: R.S, E: R.E, L: R.Last});
- if(R.Pending > 0){R.Offers = AsPlayer(R, RollOffers); R.WaitT = 0; PartySend(U, {t: 'offers', o: R.Offers, p: R.Pending, rr: R.Rerolls, lv: Player.Level})}
- else PartySend(U, {t: 'wait'});
- if(Party.Wait && Pending <= 0) HostLevelDone();
+ PartySend(U, {t: 'self', S: R.S, E: R.E, L: R.Last}); PartyOffersFor(R);
 }
-function HostReroll(U){const R = RemoteBy(U); if(R && R.Offers && R.Rerolls > 0){R.Rerolls--; R.Offers = AsPlayer(R, RollOffers); PartySend(U, {t: 'offers', o: R.Offers, p: R.Pending, rr: R.Rerolls, lv: Player.Level})}}
-function PartyLevelTick(Dt){for(const R of Party.Remotes) if(R.Offers){R.WaitT += Dt; if(R.WaitT > 30) HostPick(R.Uid, 0)}}
-function GuestPick(D){
- if(D.pick !== undefined){PartyGuestSend({t: 'pick', i: +D.pick}); Offers = []; Ui.className = 'On'; Ui.innerHTML = '<div class="Box"><h2>Upgrade chosen</h2><p>Waiting for the rest of the party…</p></div>'}
- else if(D.act === 'reroll') PartyGuestSend({t: 'reroll'});
+function HostReroll(U){const R = RemoteBy(U); if(R && R.Offers && R.Rerolls > 0){R.Rerolls--; R.Offers = AsPlayer(R, RollOffers); PartySend(U, {t: 'offers', o: R.Offers, p: R.Pending, rr: R.Rerolls})}}
+function PartyUpgradeOpen(){
+ if(Pending <= 0 || Mode !== 'play') return;
+ if(!Offers || !Offers.length){if(Party.Host) Offers = RollOffers(); else return}
+ Party.UpOpen = true; Joys.Move = null; Joys.Aim = null; Ui.className = 'On Light';
+ Ui.innerHTML = `<div class="Box Wide UpPanel"><h2>Level ${Player.Level}</h2><p>${Pending} upgrade${Pending > 1 ? 's' : ''} ready. The game keeps running.</p><div class="Cards">${Offers.map((O, I) => CardHtml(O, I, false)).join('')}</div><div class="Row"><button class="Btn Alt" data-act="reroll" ${Rerolls <= 0 ? 'disabled' : ''}>Reroll (${Rerolls} left)</button><button class="Btn Alt" data-act="upclose">Later</button></div></div>`;
 }
+function PartyUpgradeClose(Snooze){Party.UpOpen = false; if(Snooze) Party.UpSnooze = performance.now() + 15000; if(!Party.MenuOpen && Mode === 'play') Ui.className = ''}
+function PartyUpgradeToggle(){if(Party.UpOpen) PartyUpgradeClose(true); else{Party.UpSnooze = 0; PartyUpgradeOpen()}}
+function PartyUpgradeAuto(){
+ if(Pending <= 0 || Party.UpOpen || Party.MenuOpen || Mode !== 'play' || Ui.className.indexOf('On') >= 0 || performance.now() < (Party.UpSnooze || 0)) return;
+ if(Party.Host && (!Offers || !Offers.length)) Offers = RollOffers();
+ if(!Offers || !Offers.length) return;
+ if(!Enemies.some(E => !(E.SpawnLeft > 0) && Math.hypot(E.X - Player.X, E.Y - Player.Y) < 280)) PartyUpgradeOpen();
+}
+function PartyPick(I){
+ if(Party.Host){if(Offers[I]){ApplyOffer(Offers[I]); Pending--; Offers = []; if(Pending > 0){Offers = RollOffers(); PartyUpgradeOpen()} else PartyUpgradeClose()}}
+ else{Party.Chain = true; PartyGuestSend({t: 'pick', i: I}); Offers = []; PartyUpgradeClose()}
+}
+function PartyReroll(){
+ if(Party.Host){if(Rerolls > 0 && Offers.length){Rerolls--; Offers = RollOffers(); PartyUpgradeOpen()}}
+ else PartyGuestSend({t: 'reroll'});
+}
+const UpBadge = document.createElement('button'); UpBadge.id = 'UpBadge'; document.body.appendChild(UpBadge);
+UpBadge.addEventListener('click', () => {Party.UpSnooze = 0; PartyUpgradeOpen()});
+function PartyBadge(){
+ const Show = Party.On && Party.Ready && Pending > 0 && !Party.UpOpen && !Party.MenuOpen && Mode === 'play' && Ui.className === '';
+ UpBadge.style.display = Show ? 'block' : 'none'; if(Show) UpBadge.textContent = '⬆ Upgrade ready' + (Pending > 1 ? ' ×' + Pending : '') + ' · U';
+}
+const DashPM2 = Dash;
+Dash = function(){const Ready = IsGuest() && Mode === 'play' && Player && !((Player.DashCd || 0) > 0) && !Player.Down; DashPM2(); if(Ready && (Player.DashCd || 0) > 0) Party.DashT = .35};
 
 /* ----- networking: connections, messages ----- */
 function WaitIce(pc){return new Promise(Res => {if(pc.iceGatheringState === 'complete') return Res(); const T = setTimeout(Res, 3500); pc.addEventListener('icegatheringstatechange', () => {if(pc.iceGatheringState === 'complete'){clearTimeout(T); Res()}})})}
@@ -2322,7 +2530,7 @@ async function HostWatchPeers(){
 }
 async function HostAccept(Uid, X){
  const M = await FbLoad(); if(Party.Conns[Uid]){try{Party.Conns[Uid].pc.close()}catch(Err){}}
- const pc = new RTCPeerConnection(IceCfg()), C = MakeConn(pc, Uid); C.Name = SafeName(X.name); Party.Conns[Uid] = C;
+ const pc = new RTCPeerConnection(await GetIce()), C = MakeConn(pc, Uid); C.Name = SafeName(X.name); Party.Conns[Uid] = C;
  pc.ondatachannel = E => WireChannel(C, E.channel, true);
  pc.onconnectionstatechange = () => {if(pc.connectionState === 'failed') HostDrop(Uid)};
  await pc.setRemoteDescription({type: 'offer', sdp: X.offer}); await pc.setLocalDescription(await pc.createAnswer()); await WaitIce(pc);
@@ -2333,7 +2541,7 @@ const FreeElem = Uid => ElemNames.find(N => !LockedElems(Uid).has(N)) || null;
 function HostMsg(U, m){
  const C = Party.Conns[U]; if(!C || !m) return;
  if(m.t === 'hello'){
-  if(C.Hello) return; C.Hello = true; C.Up = CleanUp(m.up); C.Name = SafeName(m.n || C.Name);
+  if(C.Hello) return; C.Hello = true; if(Fb && Party.Code){try{Fb.F.deleteDoc(Fb.F.doc(Fb.db, 'parties', Party.Code, 'peers', U)).catch(() => {})}catch(Err){}} C.Up = CleanUp(m.up); C.Name = SafeName(m.n || C.Name);
   const Res = Party.Reserved, Mem = Party.Members, Already = Mem.some(x => x.Uid === U);
   let Why = '';
   if(Party.State !== 'lobby') Why = 'This party already started.';
@@ -2348,7 +2556,7 @@ function HostMsg(U, m){
  else if(m.t === 'elem'){const Mm = Party.Members.find(x => x.Uid === U); if(Mm && Party.State === 'lobby' && ElemNames.includes(m.e) && !(Party.Reserved && Party.Reserved.has(U)) && !LockedElems(U).has(m.e)){Mm.Elem = m.e; Mm.Ready = false; PartyLobbyChanged()}}
  else if(m.t === 'ready'){const Mm = Party.Members.find(x => x.Uid === U); if(Mm && Party.State === 'lobby'){Mm.Ready = !!m.v; PartyLobbyChanged()}}
  else if(m.t === 'leave') HostDrop(U);
- else if(m.t === 'in'){const R = RemoteBy(U); if(R && Number.isFinite(m.x) && Number.isFinite(m.y)){const I = R.In; I.x = m.x; I.y = m.y; I.a = Number.isFinite(m.a) ? m.a : I.a; I.f = m.f ? 1 : 0; I.i = m.i ? 1 : 0; I.n = Number.isFinite(m.n) ? m.n : I.n}}
+ else if(m.t === 'in'){const R = RemoteBy(U); if(R && Number.isFinite(m.x) && Number.isFinite(m.y)){const I = R.In; I.g = m.g; I.x = m.x; I.y = m.y; I.a = Number.isFinite(m.a) ? m.a : I.a; I.f = m.f ? 1 : 0; I.i = m.i ? 1 : 0; I.n = Number.isFinite(m.n) ? m.n : I.n}}
  else if(m.t === 'pick') HostPick(U, m.i);
  else if(m.t === 'reroll') HostReroll(U);
 }
@@ -2402,7 +2610,7 @@ async function GuestJoin(Code){
   const M = await FbLoad(), PS = await M.F.getDoc(M.F.doc(M.db, 'parties', Code));
   if(!PS.exists()){Party.View = 'hub'; Party.Msg = 'No party with that code.'; RenderParty(); return}
   const D = PS.data(); if(D.state !== 'lobby' || D.expiresAt < Date.now()){Party.View = 'hub'; Party.Msg = 'That party is not open.'; RenderParty(); return}
-  const pc = new RTCPeerConnection(IceCfg()), C = MakeConn(pc, D.hostUid);
+  const pc = new RTCPeerConnection(await GetIce()), C = MakeConn(pc, D.hostUid);
   Party.On = true; Party.Host = false; Party.Code = Code; Party.Guest = C; Party.Answered = false; Party.Names = {}; Party.Cfg = {name: D.name, mode: D.mode, diff: D.diff, mut: {}, max: D.max};
   WireChannel(C, pc.createDataChannel('ctl'), false); WireChannel(C, pc.createDataChannel('dat', {ordered: false, maxRetransmits: 0}), false);
   pc.onconnectionstatechange = () => {if(pc.connectionState === 'failed') GuestLost('Could not connect to the host.')};
@@ -2425,7 +2633,7 @@ function PartyWatch(){
 }
 function PartyReset(){
  clearInterval(Party.Timer);
- Object.assign(Party, {On: false, Host: false, Ready: false, View: '', Code: '', Id: '', Cfg: null, State: 'idle', Members: [], Remotes: [], Conns: {}, Guest: null, Handled: {}, Unsub: [], Reserved: null, Save: null, Names: {}, Others: [], Evs: [], MenuOpen: false, Wait: false, Locks: [], Lobby: null, Answered: false, SnapT: 0, InT: 0});
+ Object.assign(Party, {UpOpen: false, Chain: false, GDG: undefined, DashT: 0, On: false, Host: false, Ready: false, View: '', Code: '', Id: '', Cfg: null, State: 'idle', Members: [], Remotes: [], Conns: {}, Guest: null, Handled: {}, Unsub: [], Reserved: null, Save: null, Names: {}, Others: [], Evs: [], MenuOpen: false, Wait: false, Locks: [], Lobby: null, Answered: false, SnapT: 0, InT: 0});
  if(Player) Player.Down = false;
 }
 function PartyLeave(){
@@ -2447,15 +2655,14 @@ function GuestMsg(m){
  else if(m.t === 'start') GuestBegin(m);
  else if(m.t === 'ne'){for(const S of m.a) GStatic.set(S.i, {Radius: S.r, Kind: S.k, Color: S.c, Sides: S.s, MaxHp: S.mh, Elite: !!S.el, Boss: S.bs || undefined, Trait: S.tr || undefined, Goblin: !!S.gb, SpawnTotal: S.st})}
  else if(m.t === 's') GuestSnap(m);
- else if(m.t === 'offers'){Offers = m.o; Pending = m.p; Rerolls = m.rr; if(m.lv) Player.Level = m.lv; Mode = 'level'; Joys.Move = null; Joys.Aim = null; RenderLevel(true)}
- else if(m.t === 'wait'){Ui.className = 'On'; Ui.innerHTML = '<div class="Box"><h2>Upgrade chosen</h2><p>Waiting for the rest of the party…</p></div>'}
- else if(m.t === 'resume'){Mode = 'play'; Ui.className = ''}
+ else if(m.t === 'offers'){Offers = m.o; Pending = m.p; Rerolls = m.rr; if(m.p <= 0) PartyUpgradeClose(); else if(Party.UpOpen || Party.Chain){Party.Chain = false; PartyUpgradeOpen()}}
+ else if(m.t === 'loot'){const N = Math.min(5, Math.max(0, m.sh | 0)); Meta.Shards += N; SaveMeta(); if(Player) FloatText(Player.X, Player.Y - 30, '+' + N + ' ◆', '#ffd54a')}
  else if(m.t === 'self'){Stats = m.S; Elem = m.E; if(m.L) LastElem = m.L}
  else if(m.t === 'bn') ShowBannerPM(m.a[0], m.a[1], m.a[2]);
  else if(m.t === 'over') PartyShowOver(m.i);
 }
 function GuestBegin(m){
- GEn.clear(); GStatic.clear(); Party.State = 'play'; Party.Ready = true; Party.View = ''; Party.Names = m.names || {}; Party.MenuOpen = false;
+ GEn.clear(); GStatic.clear(); Party.GDG = undefined; Party.UpOpen = false; Party.Chain = false; Party.DashT = 0; Party.State = 'play'; Party.Ready = true; Party.View = ''; Party.Names = m.names || {}; Party.MenuOpen = false;
  SelMode = ModeKey = m.cfg.mode; const Cfg = Modes[ModeKey]; Rounds = Cfg.Total ? Cfg.Total / Cfg.RoundLen : 0;
  Stats = m.you.S; Elem = m.you.E; LastElem = m.you.L || 'Fire'; Round = m.round; Pending = 0; Rerolls = 3; Shots = 0; Time = 0;
  Player = {X: m.you.x, Y: m.you.y, Hp: Stats.MaximumHealth, Inv: 0, Cooldown: 0, KnockX: 0, KnockY: 0, Xp: 0, Level: 1, Recoil: 0, Diff: m.cfg.diff, Mut: m.cfg.mut || {}, Down: false, DashCd: 0, NovaCd: 0};
@@ -2465,13 +2672,15 @@ function GuestBegin(m){
 }
 function GuestSnap(m){
  if(!Player || Party.State !== 'play') return;
+ if(m.dg !== Party.GDG){Party.GDG = m.dg; GenDungeon(m.sd); Dg.Seen.fill(0); GEn.clear(); const Me = m.pl.find(p => p[0] === Acct.uid); if(Me){Player.X = Me[1]; Player.Y = Me[2]; Camera.X = Player.X; Camera.Y = Player.Y}}
+ if(m.ch) m.ch.forEach((V, I) => {if(Dg.Chests[I]) Dg.Chests[I].Open = !!V});
  Round = m.r; RoundTime = m.rt; Diff = m.df; Obj = {Type: m.ob[0], Have: m.ob[1], Need: m.ob[2], Done: !!m.ob[3]}; Player.Level = m.lv; Player.Xp = m.xp; RunStats.Kills = m.k; RunStats.Time = m.tm; EventKey = m.ev || null;
  Zone = m.z ? {X: m.z[0], Y: m.z[1], R: m.z[2]} : null; Crystals = (m.cr || []).map(a => ({X: a[0], Y: a[1], Phase: a[0] % 6, Got: !!a[2]}));
  Meteor = (m.mt || []).map(a => ({X: a[0], Y: a[1], T: a[2], R: a[3]}));
  Party.Others = [];
  for(const p of m.pl){
   if(p[0] === Acct.uid){Player.Hp = p[3]; Player.Down = !p[5]; Player.Inv = p[8] ? .5 : 0; if(Player.Down) Player.Hp = 0}
-  else Party.Others.push({Uid: p[0], N: Party.Names[p[0]] || 'Player', X: p[1], Y: p[2], Hp: p[3], Mh: p[4], Al: !!p[5], Aim: p[6], El: p[7], Inv: p[8]});
+  else Party.Others.push({Uid: p[0], N: Party.Names[p[0]] || 'Player', X: p[1], Y: p[2], Hp: p[3], Mh: p[4], Al: !!p[5], Aim: p[6], El: p[7], Inv: p[8], Lv: p[9]});
  }
  const Seen = new Set(), Next = [];
  for(const a of m.en){
@@ -2497,9 +2706,9 @@ function GuestUpdate(Dt){
  if(Joys.Move){Mx += Joys.Move.Dx / JoyRadius; My += Joys.Move.Dy / JoyRadius}
  let Len = Math.hypot(Mx, My); if(Len > 1){Mx /= Len; My /= Len}
  const Speed = Down ? 0 : EffSpeed();
- Player.X = Clamp(Player.X + (Mx * Speed + Player.KnockX) * Dt, PlayerRadius, Arena - PlayerRadius); Player.Y = Clamp(Player.Y + (My * Speed + Player.KnockY) * Dt, PlayerRadius, Arena - PlayerRadius);
+ MoveW(Player, (Mx * Speed + Player.KnockX) * Dt, (My * Speed + Player.KnockY) * Dt, PlayerRadius);
  Player.KnockX *= Math.max(0, 1 - 9 * Dt); Player.KnockY *= Math.max(0, 1 - 9 * Dt); Player.Recoil = Math.max(0, Player.Recoil - Dt * 8);
- Player.DashCd = Math.max(0, (Player.DashCd || 0) - Dt); Player.NovaCd = Math.max(0, (Player.NovaCd || 0) - Dt); Player.Cooldown -= Dt;
+ Player.DashCd = Math.max(0, (Player.DashCd || 0) - Dt); Player.NovaCd = Math.max(0, (Player.NovaCd || 0) - Dt); Player.Cooldown -= Dt; Party.DashT = Math.max(0, (Party.DashT || 0) - Dt);
  let Target = null, ND = Stats.Range;
  for(const En of Enemies){if(En.SpawnLeft > 0) continue; const D = Math.hypot(En.X - Player.X, En.Y - Player.Y) - En.Radius; if(D < ND){ND = D; Target = En}}
  if(AutoAim){if(Target) Aim = Math.atan2(Target.Y - Player.Y, Target.X - Player.X)}
@@ -2513,35 +2722,38 @@ function GuestUpdate(Dt){
  for(const B of Bolts){B.X += B.Vx * Dt; B.Y += B.Vy * Dt}
  for(const B of EnemyBolts){B.X += B.Vx * Dt; B.Y += B.Vy * Dt}
  Party.InT += Dt;
- if(Party.InT >= .05){Party.InT = 0; PartyGuestSend({t: 'in', x: +Player.X.toFixed(1), y: +Player.Y.toFixed(1), a: +Aim.toFixed(3), f: Firing ? 1 : 0, i: Player.Inv > 0 ? 1 : 0, n: Party.NovaReq}, true)}
+ if(Party.InT >= 1 / 30){Party.InT = 0; PartyGuestSend({t: 'in', g: Party.GDG, x: +Player.X.toFixed(1), y: +Player.Y.toFixed(1), a: +Aim.toFixed(3), f: Firing ? 1 : 0, i: Party.DashT > 0 ? 1 : 0, n: Party.NovaReq}, true)}
+ if(Pending > 0) PartyUpgradeAuto();
+ Party.SeenT = (Party.SeenT || 0) - Dt; if(Party.SeenT <= 0){Party.SeenT = .3; MarkSeen(Player)}
 }
-function GuestFrame(Dt, Blocked){if(Mode === 'play' && !Blocked) GuestUpdate(Dt); else if(Player) Time += Dt}
+function GuestFrame(Dt, Blocked){PartyBadge(); if(Mode === 'play' && !Blocked) GuestUpdate(Dt); else if(Player) Time += Dt}
 
 /* ----- host: remotes, snapshots ----- */
 function PartyFrame(Dt, Blocked){
+ PartyBadge();
  if(!Party.Host){GuestFrame(Dt, Blocked); return}
  if(Mode === 'play' && !Blocked && HitStop <= 0){Update(Dt); BoltFx(Dt); TraitTick(Dt)}
  PartyHostTick(Dt);
 }
 function PartyHostTick(Dt){
- if(Mode === 'level'){PartyLevelTick(Dt); return}
  if(Mode !== 'play' || !Party.Ready) return;
  for(const R of Party.Remotes){
   const I = R.In; R.P.Inv -= Dt; R.P.Cooldown -= Dt; R.P.NovaCd = Math.max(0, (R.P.NovaCd || 0) - Dt);
+  if(R.Pending > 0 && !R.Offers) PartyOffersFor(R);
   if(!R.Alive) continue;
-  R.P.X = Clamp(I.x, PlayerRadius, Arena - PlayerRadius); R.P.Y = Clamp(I.y, PlayerRadius, Arena - PlayerRadius);
+  if(I.g === Party.DGen && !HitW(I.x, I.y, PlayerRadius)){R.P.X = Clamp(I.x, PlayerRadius, Arena - PlayerRadius); R.P.Y = Clamp(I.y, PlayerRadius, Arena - PlayerRadius)}
   if(I.i) R.P.Inv = Math.max(R.P.Inv, .15);
   R.P.Hp = Math.min(R.S.MaximumHealth, R.P.Hp + R.S.Regeneration * Dt);
   if(I.f && R.P.Cooldown <= 0) AsPlayer(R, () => Volley(null));
   if(I.n !== R.NovaSeen){R.NovaSeen = I.n; if(!(R.P.NovaCd > 0)) AsPlayer(R, NovaCore)}
  }
  Party.SnapT += Dt;
- if(Party.SnapT >= 1 / 12){Party.SnapT = 0; PartySnapshots()}
+ if(Party.SnapT >= 1 / 20){Party.SnapT = 0; PartySnapshots()}
 }
 function PartySnapshots(){
  const Evs = Party.Evs; Party.Evs = [];
- const Pl = [[Acct.uid, Math.round(Player.X), Math.round(Player.Y), Math.round(Player.Hp), Math.round(Stats.MaximumHealth), Player.Down ? 0 : 1, +Aim.toFixed(2), Math.max(0, ElemNames.indexOf(LastElem)), Player.Inv > 0 ? 1 : 0]];
- for(const R of Party.Remotes) Pl.push([R.Uid, Math.round(R.P.X), Math.round(R.P.Y), Math.round(R.P.Hp), Math.round(R.S.MaximumHealth), R.Alive ? 1 : 0, +(R.In.a || 0).toFixed(2), Math.max(0, ElemNames.indexOf(R.Last || 'Fire')), R.P.Inv > 0 ? 1 : 0]);
+ const Pl = [[Acct.uid, Math.round(Player.X), Math.round(Player.Y), Math.round(Player.Hp), Math.round(Stats.MaximumHealth), Player.Down ? 0 : 1, +Aim.toFixed(2), Math.max(0, ElemNames.indexOf(LastElem)), Player.Inv > 0 ? 1 : 0, Player.Level]];
+ for(const R of Party.Remotes) Pl.push([R.Uid, Math.round(R.P.X), Math.round(R.P.Y), Math.round(R.P.Hp), Math.round(R.S.MaximumHealth), R.Alive ? 1 : 0, +(R.In.a || 0).toFixed(2), Math.max(0, ElemNames.indexOf(R.Last || 'Fire')), R.P.Inv > 0 ? 1 : 0, R.P.Level]);
  for(const R of Party.Remotes){
   const C = Party.Conns[R.Uid]; if(!C) continue; const cx = R.P.X, cy = R.P.Y, en = [], ns = [];
   for(const E of Enemies){
@@ -2555,7 +2767,7 @@ function PartySnapshots(){
   }
   if(ns.length) C.Send({t: 'ne', a: ns});
   const Near = (X, Y, Rd) => Math.abs(X - cx) < Rd && Math.abs(Y - cy) < Rd;
-  C.Send({t: 's', r: Round, rt: Math.round(RoundTime * 10) / 10, df: +Diff.toFixed(2), ob: [Obj.Type, Math.round(Obj.Have * 10) / 10, Obj.Need, Obj.Done ? 1 : 0], lv: Player.Level, xp: Math.round(Player.Xp), k: RunStats.Kills, tm: Math.round(RunStats.Time), ev: EventKey, z: Zone ? [Math.round(Zone.X), Math.round(Zone.Y), Zone.R] : null,
+  C.Send({t: 's', sd: Dg.Seed, dg: Party.DGen || 0, ch: Dg.Chests.map(c => c.Open ? 1 : 0), r: Round, rt: Math.round(RoundTime * 10) / 10, df: +Diff.toFixed(2), ob: [Obj.Type, Math.round(Obj.Have * 10) / 10, Obj.Need, Obj.Done ? 1 : 0], lv: R.P.Level, xp: Math.round(R.P.Xp), k: RunStats.Kills, tm: Math.round(RunStats.Time), ev: EventKey, z: Zone ? [Math.round(Zone.X), Math.round(Zone.Y), Zone.R] : null,
    cr: Crystals.map(c => [Math.round(c.X), Math.round(c.Y), c.Got ? 1 : 0]), mt: Meteor.map(m => [Math.round(m.X), Math.round(m.Y), +m.T.toFixed(2), m.R]), pl: Pl, en,
    bl: Bolts.filter(b => Near(b.X, b.Y, 900)).slice(0, 150).map(b => [Math.round(b.X), Math.round(b.Y), Math.round(b.Vx), Math.round(b.Vy), Math.max(0, ElemNames.indexOf(b.Elem)), +b.Size.toFixed(1), b.Crit ? 1 : 0]),
    eb: EnemyBolts.filter(b => Near(b.X, b.Y, 900)).slice(0, 120).map(b => [Math.round(b.X), Math.round(b.Y), Math.round(b.Vx), Math.round(b.Vy)]),
@@ -2572,17 +2784,15 @@ function PartyStart(){
  for(const Mm of Party.Members) Party.Names[Mm.Uid] = Mm.Name;
  for(const Mm of Party.Members.filter(x => !x.Host)){
   const C = Party.Conns[Mm.Uid]; Meta.Up = C ? C.Up : {}; SelElem = Mm.Elem; NewRun();
-  const R = {Uid: Mm.Uid, Name: Mm.Name, P: Player, S: Stats, E: Elem, Last: LastElem, In: {x: Player.X, y: Player.Y, a: 0, f: 0, i: 0, n: 0}, Alive: true, Pending: 0, Rerolls: 3, Offers: null, WaitT: 0, NovaSeen: 0, Elem0: Mm.Elem};
+  const R = {Uid: Mm.Uid, Name: Mm.Name, P: Player, S: Stats, E: Elem, Last: LastElem, In: {x: Player.X, y: Player.Y, a: 0, f: 0, i: 0, n: 0}, Alive: true, Pending: Pending, Rerolls: Rerolls, Offers: null, WaitT: 0, NovaSeen: 0, Elem0: Mm.Elem, Up: C ? C.Up : {}};
   const Sv = Sav && Sav.Members.find(x => x.Uid === Mm.Uid); if(Sv){Object.assign(R.S, Sv.S); R.E = Object.assign({}, Sv.E); R.P.Hp = R.S.MaximumHealth}
   Party.Remotes.push(R);
  }
  Meta.Up = sv.Up; SelElem = Party.Members[0].Elem; NewRun();
  if(Sav){const H = Sav.Members.find(x => x.Uid === Acct.uid); if(H){Object.assign(Stats, H.S); Elem = Object.assign({}, H.E); Player.Hp = Stats.MaximumHealth} Player.Level = Sav.Level; Player.Xp = Sav.Xp; Round = Sav.Round; StartRound()}
  SelMode = sv.SelMode; SelDiff = sv.SelDiff; Mut = sv.Mut; SelElem = sv.SelElem;
- const All = [Player, ...Party.Remotes.map(R => R.P)];
- All.forEach((P, I) => {const A = I / All.length * Tau; P.X = Arena / 2 + Math.cos(A) * 60; P.Y = Arena / 2 + Math.sin(A) * 60});
- for(const R of Party.Remotes){R.In.x = R.P.X; R.In.y = R.P.Y}
- Camera.X = Player.X; Camera.Y = Player.Y; Party.View = ''; Party.MenuOpen = false; Mode = 'play'; Ui.className = '';
+ for(const R of Party.Remotes){R.In.x = R.P.X; R.In.y = R.P.Y; R.In.g = Party.DGen}
+ Camera.X = Player.X; Camera.Y = Player.Y; Party.View = ''; Party.MenuOpen = false; Party.UpOpen = false; Mode = 'play'; Ui.className = '';
  for(const R of Party.Remotes) PartySend(R.Uid, {t: 'start', cfg: {mode: Cfg.mode, diff: Cfg.diff, mut: Cfg.mut}, names: Party.Names, round: Round, you: {S: R.S, E: R.E, L: R.Last, x: R.P.X, y: R.P.Y}});
  Party.Ready = true; PartyDocPatch({state: 'play', public: false}); PartySaveNow();
 }
@@ -2611,25 +2821,28 @@ const GameOverPM = GameOver;
 GameOver = function(W){if(Party.On && Party.Host){PartyOver(W); return} GameOverPM(W)};
 
 /* ----- drawing ----- */
+const PDisp = {};
+function SmoothPos(Id, X, Y, Dt){let D = PDisp[Id]; if(!D || Math.hypot(D.x - X, D.y - Y) > 300) D = PDisp[Id] = {x: X, y: Y}; const K = 1 - Math.exp(-Dt * 18); D.x += (X - D.x) * K; D.y += (Y - D.y) * K; return D}
 function DrawParty(){
  if(!Party.On || !Player) return;
- const L = Party.Host ? Party.Remotes.map(R => ({N: R.Name, X: R.P.X, Y: R.P.Y, Hp: R.P.Hp, Mh: R.S.MaximumHealth, Al: R.Alive, Aim: R.In.a || 0, El: R.Last || 'Fire', Inv: R.P.Inv})) : Party.Others.map(O => ({N: O.N, X: O.X, Y: O.Y, Hp: O.Hp, Mh: O.Mh, Al: O.Al, Aim: O.Aim, El: ElemNames[O.El] || 'Fire', Inv: O.Inv}));
+ const Now = performance.now(), Dt = Math.min(.05, (Now - (Party.LastDraw || Now)) / 1000); Party.LastDraw = Now;
+ const L = Party.Host ? Party.Remotes.map(R => ({Uid: R.Uid, N: R.Name, X: R.P.X, Y: R.P.Y, Hp: R.P.Hp, Mh: R.S.MaximumHealth, Al: R.Alive, Aim: R.In.a || 0, El: R.Last || 'Fire'})) : Party.Others.map(O => ({Uid: O.Uid, N: O.N, X: O.X, Y: O.Y, Hp: O.Hp, Mh: O.Mh, Al: O.Al, Aim: O.Aim, El: ElemNames[O.El] || 'Fire'}));
  for(const O of L){
-  const C = Elems[O.El].Color;
-  Context.globalAlpha = O.Al ? 1 : .3; Shape(O.X, O.Y, PlayerRadius, 0, 0, C); if(O.Al){Shape(O.X, O.Y, 7, 6, Time * 1.5, C, C); Context.strokeStyle = '#e8ecff'; Context.lineWidth = 3; Context.beginPath(); Context.moveTo(O.X + Math.cos(O.Aim) * 13, O.Y + Math.sin(O.Aim) * 13); Context.lineTo(O.X + Math.cos(O.Aim) * 21, O.Y + Math.sin(O.Aim) * 21); Context.stroke()}
-  Context.globalAlpha = 1; Context.fillStyle = '#e8ecff'; Context.font = '700 11px "Chakra Petch",sans-serif'; Context.textAlign = 'center'; Context.fillText(O.N, O.X, O.Y - 24);
-  if(O.Al){Context.fillStyle = '#000a'; Context.fillRect(O.X - 14, O.Y + 20, 28, 3); Context.fillStyle = C; Context.fillRect(O.X - 14, O.Y + 20, 28 * Clamp(O.Hp / O.Mh, 0, 1), 3)}
+  const C = Elems[O.El].Color, D = SmoothPos(O.Uid, O.X, O.Y, Dt);
+  Context.globalAlpha = O.Al ? 1 : .3; Shape(D.x, D.y, PlayerRadius, 0, 0, C); if(O.Al){Shape(D.x, D.y, 7, 6, Time * 1.5, C, C); Context.strokeStyle = '#e8ecff'; Context.lineWidth = 3; Context.beginPath(); Context.moveTo(D.x + Math.cos(O.Aim) * 13, D.y + Math.sin(O.Aim) * 13); Context.lineTo(D.x + Math.cos(O.Aim) * 21, D.y + Math.sin(O.Aim) * 21); Context.stroke()}
+  Context.globalAlpha = 1; Context.fillStyle = '#e8ecff'; Context.font = '700 11px "Chakra Petch",sans-serif'; Context.textAlign = 'center'; Context.fillText(O.N, D.x, D.y - 24);
+  if(O.Al){Context.fillStyle = '#000a'; Context.fillRect(D.x - 14, D.y + 20, 28, 3); Context.fillStyle = C; Context.fillRect(D.x - 14, D.y + 20, 28 * Clamp(O.Hp / O.Mh, 0, 1), 3)}
  }
 }
 function DrawPartyHud(BarY){
  if(!Party.On || !Party.Ready) return;
- const Me = {N: PublicName(), Hp: Player.Hp, Mh: Stats.MaximumHealth, Al: !Player.Down, El: LastElem};
- const All = [Me, ...(Party.Host ? Party.Remotes.map(R => ({N: R.Name, Hp: R.P.Hp, Mh: R.S.MaximumHealth, Al: R.Alive, El: R.Last || 'Fire'})) : Party.Others.map(O => ({N: O.N, Hp: O.Hp, Mh: O.Mh, Al: O.Al, El: ElemNames[O.El] || 'Fire'})))];
+ const Me = {N: PublicName(), Hp: Player.Hp, Mh: Stats.MaximumHealth, Al: !Player.Down, El: LastElem, Lv: Player.Level};
+ const All = [Me, ...(Party.Host ? Party.Remotes.map(R => ({N: R.Name, Hp: R.P.Hp, Mh: R.S.MaximumHealth, Al: R.Alive, El: R.Last || 'Fire', Lv: R.P.Level})) : Party.Others.map(O => ({N: O.N, Hp: O.Hp, Mh: O.Mh, Al: O.Al, El: ElemNames[O.El] || 'Fire', Lv: O.Lv})))];
  const W = 98; let X = Width / 2 - All.length * W / 2; const Y = BarY + 26;
  Context.textAlign = 'left'; Context.font = '700 11px "Chakra Petch",sans-serif';
  for(const P of All){
   const C = Elems[P.El].Color; Context.globalAlpha = P.Al ? 1 : .45; Context.fillStyle = C; Context.beginPath(); Context.arc(X + 5, Y + 6, 4, 0, Tau); Context.fill();
-  Context.fillStyle = '#e8ecff'; Context.fillText(P.N.slice(0, 9), X + 13, Y + 10);
+  Context.fillStyle = '#e8ecff'; Context.fillText(P.N.slice(0, 7) + (P.Lv ? ' L' + P.Lv : ''), X + 13, Y + 10);
   Context.fillStyle = '#000a'; Context.fillRect(X, Y + 15, 88, 4); Context.fillStyle = P.Al ? C : '#8f98c8'; Context.fillRect(X, Y + 15, 88 * Clamp(P.Hp / Math.max(1, P.Mh), 0, 1), 4); Context.globalAlpha = 1; X += W;
  }
 }
@@ -2640,9 +2853,11 @@ function RenderParty(){
  if(Mode !== 'menu' || !Party.View) return;
  Ui.className = 'On'; const V = Party.View, Msg = Party.Msg ? `<div class="Note" style="margin-top:10px">${HtmlEsc(Party.Msg)}</div>` : '';
  const Back = `<div class="SHead"><button class="Ghost" data-act="pback">← Back</button><h2>Multiplayer</h2></div>`;
- if(V === 'hub'){
+ if(V === 'warn'){
+  Ui.innerHTML = `<div class="Setup">${Back}<div class="Panel" style="border-color:#8a6a1f"><div class="PTitle" style="color:#ffc857">⚠ Multiplayer is not finished</div><p class="Lead" style="margin:0 0 10px">Online co-op is still in development. You may run into bugs, disconnects, balance problems or lost progress in saved parties. Co-op rewards are capped and nothing here counts for the ranking.</p><div class="Row"><button class="PlayBtn" style="font-size:20px;padding:10px 26px;min-height:48px;animation:none" data-act="pwarn">I understand, continue</button><button class="Btn Alt" data-act="pback">Go back</button></div></div></div>`;
+ }else if(V === 'hub'){
   const NS = Object.keys(PartySaves()).length;
-  Ui.innerHTML = `<div class="Setup">${Back}${Acct ? '' : '<div class="Panel"><p class="Lead" style="margin:0 0 8px">Sign in to host or join a party. Your progress and name come from your account.</p><button class="JoinBtn" data-act="signin">Sign in / Sign up</button></div>'}
+  Ui.innerHTML = `<div class="Setup">${Back}<div class="Warn">⚠ Beta: multiplayer is unfinished and may have bugs.</div>${Acct ? '' : '<div class="Panel"><p class="Lead" style="margin:0 0 8px">Sign in to host or join a party. Your progress and name come from your account.</p><button class="JoinBtn" data-act="signin">Sign in / Sign up</button></div>'}
   <div class="PGrid2 HubGrid"><button class="Pick HubCard" data-act="phost"><b>Host a party</b><span>Public or private, up to 4 players. Everyone plays a different element.</span></button>
   <button class="Pick HubCard" data-act="pbrowse"><b>Public parties</b><span>See open parties and jump into one.</span></button>
   <div class="Panel HubCard"><b>Join with a code</b><input id="PCode" class="TxtIn" maxlength="6" placeholder="ABC123" autocomplete="off" style="text-transform:uppercase"><button class="Btn" data-act="pjoin">Join</button></div>
@@ -2695,8 +2910,12 @@ async function PartyBrowse(){
 function PartyStopBrowse(){if(PartyUnsubBrowse){try{PartyUnsubBrowse()}catch(Err){} PartyUnsubBrowse = null}}
 Ui.addEventListener('click', Ev => {
  const B = Ev.target.closest('button'); if(!B) return; const A = B.dataset.act, V = B.dataset.v, Stop = () => Ev.stopImmediatePropagation();
- if(A === 'mp'){Party.View = 'hub'; Party.Msg = ''; ShowMenu(); Stop()}
- else if(A === 'pback'){PartyStopBrowse(); Party.Msg = ''; if(Party.View === 'hub') Party.View = ''; else Party.View = 'hub'; ShowMenu(); Stop()}
+ if(Party.On && Party.Ready && B.dataset.pick !== undefined){PartyPick(+B.dataset.pick); Stop()}
+ else if(Party.On && Party.Ready && A === 'reroll'){PartyReroll(); Stop()}
+ else if(Party.On && Party.Ready && A === 'upclose'){PartyUpgradeClose(true); Stop()}
+ else if(A === 'pwarn'){Party.Warned = true; Party.View = 'hub'; ShowMenu(); Stop()}
+ else if(A === 'mp'){Party.View = Party.Warned ? 'hub' : 'warn'; Party.Msg = ''; ShowMenu(); Stop()}
+ else if(A === 'pback'){PartyStopBrowse(); Party.Msg = ''; if(Party.View === 'hub' || Party.View === 'warn') Party.View = ''; else Party.View = 'hub'; ShowMenu(); Stop()}
  else if(A === 'phost'){Party.Cfg = FreshCfg(); Party.Msg = ''; Party.View = 'host'; ShowMenu(); Stop()}
  else if(A === 'pbrowse'){PartyBrowse(); Stop()}
  else if(A === 'psaves'){Party.View = 'saves'; Party.Msg = ''; ShowMenu(); Stop()}
