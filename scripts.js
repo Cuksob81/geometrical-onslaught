@@ -323,7 +323,7 @@ function ObjectiveTick(Dt){
  }
  if(Obj.Type === 'zone' && PartyNear(Zone.X, Zone.Y, Zone.R)) Obj.Have += Dt;
  if(Obj.Have >= Obj.Need){
-  Obj.Done = true; Pending++; PartyBonus(); Crystals = []; Zone = null;
+  Obj.Done = true; Pending++; PartyBonus(); RunStats.Objs = (RunStats.Objs || 0) + 1; Crystals = []; Zone = null;
   Player.Hp = Math.min(Stats.MaximumHealth, Player.Hp + Stats.MaximumHealth * .25);
   ShowBanner('Objective complete', 'Bonus upgrade', '#ffc857');
   Ring(Player.X, Player.Y, '#ffc857', 90, .6);
@@ -622,7 +622,7 @@ function SnapshotRun(){
     V: SaveVersion, SavedAt: Date.now(), Over: false,
     ModeKey, SelElem, AutoAim, HordeT, LastObjType,
     Round, Rounds, RoundTime, Diff, SpawnTimer, Time, Pending, Rerolls, Shots, LastElem, ObjKills,
-    Obj, Player, Stats, Elem, RunStats, Enemies, EnemyBolts, Pickups, Crystals, Zone, Camera, Offers, DSeed: Dg.Seed, DOpen: Dg.Chests.map(C => C.Open ? 1 : 0),
+    Obj, Player, Stats, Elem, RunStats, Enemies, EnemyBolts, Pickups, Crystals, Zone, Camera, Offers, DSeed: Dg.Seed, DOpen: [...Dg.Opened],
     Bolts: Bolts.map(B => ({...B, Hit: []}))
   };
 }
@@ -653,7 +653,7 @@ function LoadRun(ModeName){
     Pickups = S.Pickups || []; Crystals = S.Crystals || []; Zone = S.Zone || null;
     Camera = S.Camera || {X: Player.X, Y: Player.Y}; Offers = S.Offers || [];
     Particles = []; Texts = []; ActiveBanner = null; Shake = 0; HpView = Player.Hp;
-    GenDungeon(S.DSeed ?? ((Math.random() * 2 ** 31) | 0)); Dg.Seen.fill(0); (S.DOpen || []).forEach((V, I) => {if(Dg.Chests[I]) Dg.Chests[I].Open = !!V});
+    GenDungeon(S.DSeed ?? ((Math.random() * 2 ** 31) | 0)); Dg.Run = true; Dg.Opened = new Set((S.DOpen || []).filter(V => typeof V === 'string'));
     for(const O of [Player, ...Enemies, ...Pickups, ...Crystals, ...(Zone ? [Zone] : [])]){const Pq = Place(O.X, O.Y); O.X = Pq.X; O.Y = Pq.Y}
     Camera = {X: Player.X, Y: Player.Y}; FlowUpdate();
     Mode = 'play'; Ui.className = '';
@@ -803,7 +803,7 @@ function SplitEnemy(En){
   for(let I = 0; I < 2; I++){
     SpawnEnemy(6);
     const S = Enemies[Enemies.length - 1];
-    S.X = Clamp(En.X + (I ? 14 : -14), 10, Arena - 10); S.Y = Clamp(En.Y + RandRange(-10, 10), 10, Arena - 10);
+    S.X = En.X + (I ? 14 : -14); S.Y = En.Y + RandRange(-10, 10);
     S.SpawnLeft = S.SpawnTotal = .2;
   }
 }
@@ -1003,7 +1003,7 @@ function Update(Dt){
  let Mx = (Keys['d'] || Keys['arrowright'] ? 1 : 0) - (Keys['a'] || Keys['arrowleft'] ? 1 : 0), My = (Keys['s'] || Keys['arrowdown'] ? 1 : 0) - (Keys['w'] || Keys['arrowup'] ? 1 : 0);
  if(Joys.Move){Mx += Joys.Move.Dx / JoyRadius; My += Joys.Move.Dy / JoyRadius}
  let Len = Math.hypot(Mx, My); if(Len > 1){Mx /= Len; My /= Len; Len = 1}
- const Speed = Player.Down ? 0 : EffSpeed();
+ const Speed = Player.Down ? 0 : EffSpeed() * TerrainMul(Player.X, Player.Y);
  MoveW(Player, (Mx * Speed + Player.KnockX) * Dt, (My * Speed + Player.KnockY) * Dt, PlayerRadius);
  Player.KnockX *= Math.max(0, 1 - 9 * Dt); Player.KnockY *= Math.max(0, 1 - 9 * Dt);
  Player.Inv -= Dt; Player.Recoil = Math.max(0, Player.Recoil - Dt * 8);
@@ -1052,7 +1052,7 @@ function Update(Dt){
   if(En.StunT > 0) Spd = 0;
   if(En.Kind === 3){if(Dist < 170) Spd = -Spd * .7; else if(Dist < 230) Spd = 0}
   if(En.Kind === 1) En.Rot = Math.atan2(Dy, Dx) + Math.PI / 2;
-  const Cv = ChaseVec(En, Dx, Dy, Dist); MoveW(En, (Cv.X * Spd + En.KnockX) * Dt, (Cv.Y * Spd + En.KnockY) * Dt, Math.min(En.Radius * .7, 22));
+  const Cv = ChaseVec(En, Dx, Dy, Dist); const Tm = TerrainMul(En.X, En.Y); MoveW(En, (Cv.X * Spd * Tm + En.KnockX) * Dt, (Cv.Y * Spd * Tm + En.KnockY) * Dt, Math.min(En.Radius * .6, 16));
   En.KnockX *= Math.max(0, 1 - 7 * Dt); En.KnockY *= Math.max(0, 1 - 7 * Dt);
   if(En.Kind >= 3 && En.StunT <= 0){
    En.Cooldown -= Dt;
@@ -1247,6 +1247,7 @@ function DrawJoy(J, Hx, Hy, Label){
 
 function DrawHud(){
  Context.setTransform(Dpr, 0, 0, Dpr, 0, 0);
+ DrawVignette();
  if(Player.Inv > .3){Context.fillStyle = '#ff5d7326'; Context.fillRect(0, 0, Width, Height)}
  const BarW = Math.min(Width - 300, 320), BarX = (Width - BarW) / 2, BarY = 12 + SafeTop;
 
@@ -1360,7 +1361,7 @@ function Loop(Stamp){
 /* ---------- v3: dash, hit-stop, shard workshop, recap + share, perf guard ---------- */
 let HitStop = 0, ParticleCap = 350, PerfAvg = .016, LastGain = 0, ShareText = '';
 let ShakeOn = StorageGet('ShapeSwarmShake') !== '0', Meta = {Shards: 0, Up: {}};
-try{const M = JSON.parse(StorageGet('ShapeSwarmMeta') || 'null'); if(M && typeof M.Shards === 'number') Meta = {Shards: M.Shards, Up: M.Up || {}, Stamp: M.Stamp || 0}}catch(Err){}
+try{const M = JSON.parse(StorageGet('ShapeSwarmMeta') || 'null'); if(M && typeof M.Shards === 'number') Meta = {Shards: M.Shards, Up: M.Up || {}, Stamp: M.Stamp || 0, Tree: M.Tree}}catch(Err){}
 const SaveMeta = () => {Meta.Stamp = Date.now(); StorageSet('ShapeSwarmMeta', JSON.stringify(Meta))};
 const Workshop = [
  {Key: 'Vigor', Name: 'Vigor', Perk: '+10 max HP', Glyph: '✚', Mult: 1},
@@ -1386,6 +1387,7 @@ const WorkshopCost = (L, W) => Math.round(([15, 30, 50, 80, 120][L] ?? 0) * (W.M
 
 const NewRunV3 = NewRun;
 NewRun = function(){
+ Dg.Run = false;
  NewRunV3();
  Player.Mut = Object.assign({}, Mut); Player.Diff = SelDiff; FillStats(); EliteT = 20;
  ApplyTree();
@@ -1859,7 +1861,7 @@ async function CloudPull(){
  const C = JSON.parse(D.Data);
  for(const K in (C.Best || {})) if(C.Best[K] > (Best[K] || 0)) Best[K] = C.Best[K];
  StorageSet('ShapeSwarmBest2', JSON.stringify(Best));
- if(C.Meta && (C.Meta.Stamp || 0) > (Meta.Stamp || 0)){Meta = {Shards: C.Meta.Shards || 0, Up: C.Meta.Up || {}, Stamp: C.Meta.Stamp}; StorageSet('ShapeSwarmMeta', JSON.stringify(Meta))}
+ if(C.Meta && (C.Meta.Stamp || 0) > (Meta.Stamp || 0)){Meta = {Shards: C.Meta.Shards || 0, Up: C.Meta.Up || {}, Stamp: C.Meta.Stamp, Tree: C.Meta.Tree}; MigrateTree(); StorageSet('ShapeSwarmMeta', JSON.stringify(Meta))}
  for(const K in (C.Saves || {})){
   const L = SaveStore.Get(K), R = C.Saves[K];
   if(ValidSave(R) && (!ValidSave(L) || (R.RunStats.Time || 0) > (L.RunStats.Time || 0))) SaveStore.Set(K, R);
@@ -2001,11 +2003,11 @@ async function BoardLoad(Force){
  Board.Loading = true; Board.Err = '';
  try{
   const M = await FbLoad(), Col = M.F.collection(M.db, 'boards', Board.Mode, 'entries');
-  const Snap = await M.F.getDocs(M.F.query(Col, M.F.orderBy('score', 'desc'), M.F.limit(25)));
+  const Snap = await M.F.getDocs(M.F.query(Col, M.F.orderBy('rank', 'desc'), M.F.limit(25)));
   Board.Rows = Snap.docs.map(D => D.data()); Board.Mine = null;
   if(Acct){
    const Me = await M.F.getDoc(M.F.doc(M.db, 'boards', Board.Mode, 'entries', Acct.uid));
-   if(Me.exists()){Board.Mine = Me.data(); const C = await M.F.getCountFromServer(M.F.query(Col, M.F.where('score', '>', Board.Mine.score))); Board.Rank = C.data().count + 1}
+   if(Me.exists()){Board.Mine = Me.data(); const C = await M.F.getCountFromServer(M.F.query(Col, M.F.where('rank', '>', Board.Mine.rank || 0))); Board.Rank = C.data().count + 1}
   }
   Board.At = Date.now();
  }catch(Err){Board.Err = FbErr(Err)}
@@ -2019,23 +2021,35 @@ function BoardHtml(){
  else if(Board.Err) Body = `<div class="Note">Ranking unavailable: ${HtmlEsc(Board.Err)}</div>`;
  else if(!Board.Rows) Body = '<div class="Note">Loading ranking…</div>';
  else if(!Board.Rows.length) Body = '<div class="Note">No scores yet. Be the first!</div>';
- else Body = Board.Rows.map((R, I) => `<div class="BRow ${Acct && R.uid === Acct.uid ? 'Me' : ''} R${I + 1}"><span class="BRank">${I + 1}</span><span class="BName">${/^https:/.test(R.photo || '') ? `<img alt="" referrerpolicy="no-referrer" src="${HtmlEsc(R.photo)}">` : ''}${HtmlEsc(R.name || 'Player')}</span><span class="BScore">${FormatTime(R.score)}${R.mult > 1 ? `<small>×${R.mult}</small>` : ''}</span></div>`).join('');
- const Foot = !FbReady ? '' : Acct ? (Board.Mine ? `<div class="BMine">You: #${Board.Rank} · ${FormatTime(Board.Mine.score)}</div>` : '<div class="BMine">Finish a run to get ranked.</div>') : '<button class="JoinBtn" data-act="signin">Sign in to get ranked</button>';
- return `<div class="PTitle">Global ranking <b style="float:right;color:var(--Amber)">time × mutators × difficulty</b></div><div class="PGrid3">${Chips}</div><div class="BList WsScroll">${Body}</div>${Foot}`;
+ else Body = Board.Rows.map((R, I) => `<div class="BRow ${Acct && R.uid === Acct.uid ? 'Me' : ''} R${I + 1}"><span class="BRank">${I + 1}</span><span class="BName">${/^https:/.test(R.photo || '') ? `<img alt="" referrerpolicy="no-referrer" src="${HtmlEsc(R.photo)}">` : ''}${HtmlEsc(R.name || 'Player')}</span><span class="BScore">${Number(R.score).toLocaleString()}<small>R${R.round || '?'} · ${HtmlEsc(R.diff || '')}${R.mult > 1 ? ' ×' + R.mult : ''}</small></span></div>`).join('');
+ const Foot = !FbReady ? '' : Acct ? (Board.Mine ? `<div class="BMine">You: #${Board.Rank} · ${Number(Board.Mine.score).toLocaleString() + ' pts'}</div>` : '<div class="BMine">Finish a run to get ranked.</div>') : '<button class="JoinBtn" data-act="signin">Sign in to get ranked</button>';
+ return `<div class="PTitle">Global ranking <b style="float:right;color:var(--Amber)">performance score</b></div><div class="PGrid3">${Chips}</div><div class="BList WsScroll">${Body}</div>${Foot}`;
 }
-async function SubmitScore(ModeName, Time, Rd, Lv, Kl, MutN, DiffName){
- if(!Acct || !Acct.verified || !FbReady || Time < 10) return null;
- const M = await FbLoad(), Mult = +((1 + .2 * MutN) * (DiffTbl[DiffName] || DiffTbl.Normal).Reward).toFixed(2), Score = Math.floor(Time * Mult);
- const Ref = M.F.doc(M.db, 'boards', ModeName, 'entries', Acct.uid), Old = await M.F.getDoc(Ref), OldScore = Old.exists() ? Old.data().score : 0;
- if(Score > OldScore) await M.F.setDoc(Ref, {uid: Acct.uid, name: PublicName(), photo: Acct.photo, score: Score, time: Math.floor(Time), mult: Mult, diff: DiffName || 'Normal', round: Rd, level: Lv, kills: Kl, Updated: Date.now()});
- const C = await M.F.getCountFromServer(M.F.query(M.F.collection(M.db, 'boards', ModeName, 'entries'), M.F.where('score', '>', Math.max(Score, OldScore))));
- Board.At = 0; return {rank: C.data().count + 1, best: Math.max(Score, OldScore)};
+const KillEnemyScore = KillEnemy;
+KillEnemy = function(En){KillEnemyScore(En); if(En.Boss) RunStats.BossK = (RunStats.BossK || 0) + 1};
+const HurtPlayerScore = HurtPlayer;
+HurtPlayer = function(A, S){const H0 = Player ? Player.Hp : 0, R = HurtPlayerScore(A, S); if(Player && Player.Hp < H0) RunStats.Taken = (RunStats.Taken || 0) + (H0 - Player.Hp); return R};
+/* Ranking = performance points, not speed or date. Ties are broken by the least damage taken (stored inside `rank`). */
+function RunScore(Won){
+ const S = RunStats, Taken = Math.round(S.Taken || 0), Rd = Math.max(0, Round - (Won ? 0 : 1));
+ const Parts = {Kills: S.Kills * 10, Damage: Math.round(S.Damage / 20), Rounds: Rd * 600, Objectives: (S.Objs || 0) * 300, Bosses: (S.BossK || 0) * 1500, Level: Player.Level * 60, Chests: (S.Chests || 0) * 120, Victory: Won ? 8000 : 0, Careful: Math.max(0, 4000 - Taken * 4)};
+ const Base = Object.values(Parts).reduce((A, B) => A + B, 0), MN = Object.values(RM()).filter(Boolean).length, Mult = +((1 + .2 * MN) * RunDiff().Reward).toFixed(2);
+ const Score = Math.min(4000000, Math.floor(Base * Mult));
+ return {Parts, Base, Mult, Score, Taken, Rank: Score * 1000000 + (999999 - Math.min(999999, Taken))};
+}
+async function SubmitRun(ModeName, R, X){
+ if(!Acct || !Acct.verified || !FbReady || R.Score < 1) return null;
+ const M = await FbLoad(), Ref = M.F.doc(M.db, 'boards', ModeName, 'entries', Acct.uid), Old = await M.F.getDoc(Ref), OldRank = Old.exists() && Number.isFinite(Old.data().rank) ? Old.data().rank : 0;
+ if(R.Rank > OldRank) await M.F.setDoc(Ref, {uid: Acct.uid, name: PublicName(), photo: Acct.photo, score: R.Score, rank: R.Rank, taken: R.Taken, mult: R.Mult, diff: X.diff, round: Math.min(60, X.round), level: X.level, kills: Math.min(40000, X.kills), won: X.won ? 1 : 0, Updated: Date.now()});
+ const Best = Math.max(R.Rank, OldRank), C = await M.F.getCountFromServer(M.F.query(M.F.collection(M.db, 'boards', ModeName, 'entries'), M.F.where('rank', '>', Best)));
+ Board.At = 0; return {place: C.data().count + 1, improved: R.Rank > OldRank};
 }
 const GameOverV9 = GameOver;
 GameOver = function(W){
- const T = RunStats.Time, Rd = Round, Lv = Player.Level, Kl = RunStats.Kills, MN = Object.values(RM()).filter(Boolean).length, MK = ModeKey, DK = (Player && Player.Diff) || SelDiff;
+ const Sc = RunScore(W), MK = ModeKey, X = {diff: (Player && Player.Diff) || SelDiff, round: Round, level: Player.Level, kills: RunStats.Kills, won: W};
  GameOverV9(W);
- SubmitScore(MK, T, Rd, Lv, Kl, MN, DK).then(R => {if(R){const E = Ui.querySelector('.Recap'); if(E) E.insertAdjacentHTML('beforeend', '<br>🌐 Global rank #' + R.rank + ' · ' + MK)}}).catch(() => {});
+ const E = Ui.querySelector('.Recap'); if(E) E.insertAdjacentHTML('beforeend', `<br>🏆 Score <b>${Sc.Score.toLocaleString()}</b> <small>(${Sc.Base.toLocaleString()} base × ${Sc.Mult})</small>`);
+ SubmitRun(MK, Sc, X).then(R => {if(R){const E2 = Ui.querySelector('.Recap'); if(E2) E2.insertAdjacentHTML('beforeend', '<br>🌐 Global place #' + R.place + ' · ' + MK + (R.improved ? ' · new personal best!' : ''))}}).catch(() => {});
 };
 Ui.addEventListener('click', Ev => {
  const B = Ev.target.closest('button'); if(!B || !B.dataset.bmode) return;
@@ -2156,7 +2170,7 @@ TraitTick = function(Dt){
   }
  }
  Meteor = Meteor.filter(M => M.T > 0);
- GoblinT -= Dt * (EventKey === 'Golden' ? 3 : 1);
+ GoblinT -= Dt * (EventKey === 'Golden' ? 3 : 1) * (1 + TreeVal('Hunter'));
  if(GoblinT <= 0 && Round >= 2 && !Enemies.some(E => E.Goblin)){GoblinT = RandRange(45, 70); SpawnGoblin()}
  for(const G of Enemies) if(G.Goblin && G.SpawnLeft <= 0){
   const Dx = G.X - Player.X, Dy = G.Y - Player.Y, L = Math.hypot(Dx, Dy) || 1;
@@ -2170,114 +2184,164 @@ KillEnemy = function(En){
  if(En.Goblin){PartyXpAll(30 + Round * 6); Meta.Shards += 2; SaveMeta(); FloatText(En.X, En.Y - 20, '+2 ◆ LOOT!', '#ffd54a'); Burst(En.X, En.Y, '#ffd54a', 24, 300, .6); Ring(En.X, En.Y, '#ffd54a', 70, .4)}
 };
 
-/* ---------- v12: procedural dungeon (rooms, corridors, chests, minimap) ---------- */
-const TS = 60, GN = Arena / TS, Dirs4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-const Dg = {Seed: 0, Gen: 0, Grid: new Uint8Array(GN * GN), Rooms: [], Floors: [], Dist: new Int16Array(GN * GN).fill(-1), Chests: [], Seen: new Uint8Array(GN * GN), FlowT: 0, Q: new Int16Array(GN * GN)};
+/* ---------- v13: infinite procedural caves ---------- */
+const TS = 40, CH = 32;
+const NH = (S, X, Y) => {let H = (Math.imul(X | 0, 374761393) + Math.imul(Y | 0, 668265263) + Math.imul(S | 0, 1274126177)) | 0; H = Math.imul(H ^ (H >>> 13), 1274126177); H ^= H >>> 16; return (H >>> 0) / 4294967296};
+function VNoise(S, X, Y){const X0 = Math.floor(X), Y0 = Math.floor(Y); let FX = X - X0, FY = Y - Y0; FX = FX * FX * (3 - 2 * FX); FY = FY * FY * (3 - 2 * FY); const A = NH(S, X0, Y0), B = NH(S, X0 + 1, Y0), C = NH(S, X0, Y0 + 1), D = NH(S, X0 + 1, Y0 + 1); return A + (B - A) * FX + (C - A) * FY + (A - B - C + D) * FX * FY}
+const FBm = (S, X, Y, O) => {let V = 0, A = .5, F = 1, T = 0; for(let I = 0; I < O; I++){V += VNoise(S + I * 101, X * F, Y * F) * A; T += A; F *= 2; A *= .5} return V / T};
+const LN = CH / 2 + 1;
+// tile types: 0 rock, 1 stone, 2 water, 3 grass
+function GenChunkTiles(S, OX, OY, CX, CY){
+ const Cf = new Float32Array(LN * LN), Rf = new Float32Array(LN * LN), Wf = new Float32Array(LN * LN), Gf = new Float32Array(LN * LN);
+ for(let J = 0; J < LN; J++) for(let I = 0; I < LN; I++){
+  const TX = CX * CH + I * 2, TY = CY * CH + J * 2, K = J * LN + I;
+  const WX = TX + (VNoise(S + 7, TX * .03, TY * .03) - .5) * 16, WY = TY + (VNoise(S + 8, TX * .03, TY * .03) - .5) * 16;
+  Cf[K] = FBm(S, WX * .042, WY * .042, 3); Rf[K] = Math.abs(VNoise(S + 31, WX * .026, WY * .026) - .5);
+  Wf[K] = FBm(S + 55, TX * .06, TY * .06, 2); Gf[K] = FBm(S + 77, TX * .05, TY * .05, 2);
+ }
+ const T = new Uint8Array(CH * CH);
+ for(let Y = 0; Y < CH; Y++) for(let X = 0; X < CH; X++){
+  const I = X >> 1, J = Y >> 1, FX = (X & 1) * .5, FY = (Y & 1) * .5, K = J * LN + I;
+  const L = (A) => A[K] * (1 - FX) * (1 - FY) + A[K + 1] * FX * (1 - FY) + A[K + LN] * (1 - FX) * FY + A[K + LN + 1] * FX * FY;
+  const TX = CX * CH + X, TY = CY * CH + Y, D0 = Math.hypot(TX - OX, TY - OY), C = L(Cf), R = L(Rf);
+  let Open = C > .495 || R < .03;
+  if(D0 < 6) Open = true; else if(D0 < 8 && !Open) Open = C > .45;
+  if(!Open){T[Y * CH + X] = 0; continue}
+  T[Y * CH + X] = (D0 > 10 && L(Wf) > .71) ? 2 : (L(Gf) > .56 ? 3 : 1);
+ }
+ return T;
+}
+const Dirs4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const Dg = {Seed: 0, Gen: 0, Run: false, OX: 0, OY: 0, Chunks: new Map(), LK: null, LC: null, SeenC: new Map(), Scanned: new Set(), Chests: [], Opened: new Set(), FX0: 0, FY0: 0, FW: 0, FH: 0, Dist: new Int16Array(224 * 224), Q: new Int32Array(224 * 224), FlowT: 0, ScanT: 0, Mini: null, MiniX: 0, MiniY: 0, MiniAt: 0};
 const MakeRng = Seed => {let A = Seed >>> 0; return () => {A = (A + 0x6D2B79F5) >>> 0; let T = Math.imul(A ^ (A >>> 15), 1 | A); T = (T + Math.imul(T ^ (T >>> 7), 61 | T)) ^ T; return ((T ^ (T >>> 14)) >>> 0) / 4294967296}};
-const TileOf = (X, Y) => Math.floor(Y / TS) * GN + Math.floor(X / TS);
-const Solid = (X, Y) => X < 0 || Y < 0 || X >= Arena || Y >= Arena || !Dg.Grid[TileOf(X, Y)];
+const ChunkKey = (CX, CY) => (CX + 32768) * 65536 + (CY + 32768);
+function ChunkAt(CX, CY){const K = ChunkKey(CX, CY); if(Dg.LK === K) return Dg.LC; let C = Dg.Chunks.get(K); if(!C){C = GenChunkTiles(Dg.Seed, Dg.OX, Dg.OY, CX, CY); Dg.Chunks.set(K, C)} Dg.LK = K; Dg.LC = C; return C}
+const TileT = (TX, TY) => {const CX = Math.floor(TX / CH), CY = Math.floor(TY / CH); return ChunkAt(CX, CY)[(TY - CY * CH) * CH + (TX - CX * CH)]};
+const Solid = (X, Y) => TileT(Math.floor(X / TS), Math.floor(Y / TS)) === 0;
 const HitW = (X, Y, R) => Solid(X - R, Y - R) || Solid(X + R, Y - R) || Solid(X - R, Y + R) || Solid(X + R, Y + R);
 function MoveW(O, Dx, Dy, R){const NX = O.X + Dx; if(!HitW(NX, O.Y, R)) O.X = NX; const NY = O.Y + Dy; if(!HitW(O.X, NY, R)) O.Y = NY}
-function BuildDungeon(Seed){
- const R = MakeRng(Seed), G = new Uint8Array(GN * GN), Rooms = [], Ri = (A, B) => A + Math.floor(R() * (B - A + 1));
- for(let Try = 0; Try < 260 && Rooms.length < 12; Try++){
-  const W = Ri(6, 10), H = Ri(6, 10), X = Ri(2, GN - W - 3), Y = Ri(2, GN - H - 3);
-  if(Rooms.some(Q => X < Q.x + Q.w + 2 && X + W + 2 > Q.x && Y < Q.y + Q.h + 2 && Y + H + 2 > Q.y)) continue;
-  Rooms.push({x: X, y: Y, w: W, h: H, cx: X + W / 2, cy: Y + H / 2});
- }
- if(Rooms.length < 6) return null;
- for(const Q of Rooms) for(let Y = Q.y; Y < Q.y + Q.h; Y++) for(let X = Q.x; X < Q.x + Q.w; X++) G[Y * GN + X] = 1;
- const Carve = (X, Y) => {for(let Dy = 0; Dy < 2; Dy++) for(let Dx = 0; Dx < 2; Dx++){const NX = X + Dx, NY = Y + Dy; if(NX > 0 && NY > 0 && NX < GN - 1 && NY < GN - 1) G[NY * GN + NX] = 1}};
- const Link = (A, B) => {
-  let X = Math.floor(A.cx), Y = Math.floor(A.cy); const TX = Math.floor(B.cx), TY = Math.floor(B.cy);
-  if(R() < .5){while(X !== TX){Carve(X, Y); X += Math.sign(TX - X)} while(Y !== TY){Carve(X, Y); Y += Math.sign(TY - Y)}}
-  else{while(Y !== TY){Carve(X, Y); Y += Math.sign(TY - Y)} while(X !== TX){Carve(X, Y); X += Math.sign(TX - X)}}
-  Carve(X, Y);
- };
- for(let I = 1; I < Rooms.length; I++){let B = 0, BD = 1e9; for(let J = 0; J < I; J++){const D = Math.abs(Rooms[I].cx - Rooms[J].cx) + Math.abs(Rooms[I].cy - Rooms[J].cy); if(D < BD){BD = D; B = J}} Link(Rooms[I], Rooms[B])}
- for(let K = 0; K < 3; K++){const A = Rooms[Ri(0, Rooms.length - 1)], B = Rooms[Ri(0, Rooms.length - 1)]; if(A !== B) Link(A, B)}
- for(let I = 1; I < Rooms.length; I++){
-  const Q = Rooms[I]; if(Q.w < 8 || Q.h < 8) continue;
-  for(let K = 0; K < 2; K++){
-   const PX = Ri(Q.x + 2, Q.x + Q.w - 4), PY = Ri(Q.y + 2, Q.y + Q.h - 4);
-   if(Math.abs(PX - Math.floor(Q.cx)) < 3 || Math.abs(PY - Math.floor(Q.cy)) < 3) continue;
-   for(let Dy = 0; Dy < 2; Dy++) for(let Dx = 0; Dx < 2; Dx++) G[(PY + Dy) * GN + PX + Dx] = 0;
-  }
- }
- const Chests = [];
- for(let I = 1; I < Rooms.length; I++){
-  const Q = Rooms[I], N = (Q.w * Q.h >= 70 ? 2 : 1) * (R() < .7 ? 1 : 0);
-  for(let K = 0; K < N; K++){const X = Ri(Q.x + 1, Q.x + Q.w - 2), Y = Ri(Q.y + 1, Q.y + Q.h - 2); if(G[Y * GN + X]) Chests.push({X: (X + .5) * TS, Y: (Y + .5) * TS, Open: false})}
- }
- return {G, Rooms, Chests};
+const TerrainMul = (X, Y) => TileT(Math.floor(X / TS), Math.floor(Y / TS)) === 2 ? .62 : 1;
+function CaveSize(TX, TY){
+ const R = 60, Seen = new Set(), Q = [TX, TY], Key = (X, Y) => (X - TX + R + 1) * 256 + (Y - TY + R + 1); Seen.add(Key(TX, TY)); let H = 0;
+ while(H < Q.length){const X = Q[H++], Y = Q[H++]; for(const [Dx, Dy] of Dirs4){const NX = X + Dx, NY = Y + Dy; if(Math.abs(NX - TX) > R || Math.abs(NY - TY) > R) continue; const K = Key(NX, NY); if(Seen.has(K) || !TileT(NX, NY)) continue; Seen.add(K); Q.push(NX, NY)}}
+ return Seen.size;
 }
 function GenDungeon(Seed){
- let B = null; for(let K = 0; K < 30 && !B; K++) B = BuildDungeon((Seed + K * 977) | 0);
- if(!B) B = BuildDungeon(12345);
- Dg.Grid = B.G; Dg.Rooms = B.Rooms; Dg.Chests = B.Chests; Dg.Seed = Seed; Dg.Gen++;
- Dg.Floors = []; for(let I = 0; I < GN * GN; I++) if(Dg.Grid[I]) Dg.Floors.push(I);
+ Dg.Seed = Seed | 0; Dg.OX = 0; Dg.OY = 0; Dg.Chunks.clear(); Dg.SeenC.clear(); Dg.Scanned.clear(); Dg.Chests = []; Dg.Opened = new Set(); Dg.LK = null; Dg.Gen++; Dg.FW = 0; Dg.Mini = null;
+ const R = MakeRng(Dg.Seed + 17);
+ for(let K = 0; K < 16; K++){
+  if(CaveSize(Dg.OX, Dg.OY) >= 2600) break;
+  Dg.OX = Math.round((R() - .5) * 700); Dg.OY = Math.round((R() - .5) * 700); Dg.Chunks.clear(); Dg.LK = null;
+ }
 }
-const StartPos = I => {const Q = Dg.Rooms[0], A = I * 1.7; return {X: Q.cx * TS + Math.cos(A) * 34, Y: Q.cy * TS + Math.sin(A) * 34}};
+const StartPos = I => ({X: (Dg.OX + .5) * TS + Math.cos(I * 1.7) * 34, Y: (Dg.OY + .5) * TS + Math.sin(I * 1.7) * 34});
 function Place(X, Y){
  if(!HitW(X, Y, 10)) return {X, Y};
- const I = TileOf(Clamp(X, 1, Arena - 1), Clamp(Y, 1, Arena - 1)), TX = I % GN, TY = Math.floor(I / GN);
- for(let R = 1; R < 9; R++) for(let Oy = -R; Oy <= R; Oy++) for(let Ox = -R; Ox <= R; Ox++){
-  if(Math.max(Math.abs(Ox), Math.abs(Oy)) !== R) continue; const NX = TX + Ox, NY = TY + Oy;
-  if(NX >= 0 && NY >= 0 && NX < GN && NY < GN && Dg.Grid[NY * GN + NX]) return {X: (NX + .5) * TS, Y: (NY + .5) * TS};
+ const TX0 = Math.floor(X / TS), TY0 = Math.floor(Y / TS);
+ for(let R = 1; R < 14; R++) for(let Oy = -R; Oy <= R; Oy++) for(let Ox = -R; Ox <= R; Ox++){
+  if(Math.max(Math.abs(Ox), Math.abs(Oy)) !== R) continue; const CX = (TX0 + Ox + .5) * TS, CY = (TY0 + Oy + .5) * TS;
+  if(!HitW(CX, CY, 10)) return {X: CX, Y: CY};
  }
  return StartPos(0);
 }
-function RandFloor(){const Qs = Dg.Rooms.slice(1), Q = Qs.length ? Qs[Math.floor(Math.random() * Qs.length)] : Dg.Rooms[0]; return Place((Q.x + 1 + Math.random() * (Q.w - 2)) * TS, (Q.y + 1 + Math.random() * (Q.h - 2)) * TS)}
-function ZonePlace(){const Qs = Dg.Rooms.slice(1), Q = Qs.length ? Qs[Math.floor(Math.random() * Qs.length)] : Dg.Rooms[0]; return {X: Q.cx * TS, Y: Q.cy * TS, R: Math.min(140, Math.min(Q.w, Q.h) * TS * .36)}}
+const OpenAt = (X, Y, R) => {const TX = Math.floor(X / TS), TY = Math.floor(Y / TS); for(let Oy = -R; Oy <= R; Oy++) for(let Ox = -R; Ox <= R; Ox++) if(!TileT(TX + Ox, TY + Oy)) return false; return true};
+const DistAt = (TX, TY) => {const X = TX - Dg.FX0, Y = TY - Dg.FY0; return X >= 0 && Y >= 0 && X < Dg.FW && Y < Dg.FH ? Dg.Dist[Y * Dg.FW + X] : -1};
 function FlowUpdate(){
- const D = Dg.Dist, Q = Dg.Q; D.fill(-1); let H = 0, T = 0;
  const Src = []; if(Player && !Player.Down) Src.push(Player); for(const R of Party.Remotes) if(R.Alive) Src.push(R.P);
- for(const P of Src){const I = TileOf(P.X, P.Y); if(I >= 0 && I < GN * GN && Dg.Grid[I] && D[I] < 0){D[I] = 0; Q[T++] = I}}
- while(H < T){const I = Q[H++], X = I % GN, Y = (I - X) / GN, Dd = D[I] + 1; for(const [Ox, Oy] of Dirs4){const NX = X + Ox, NY = Y + Oy; if(NX < 0 || NY < 0 || NX >= GN || NY >= GN) continue; const J = NY * GN + NX; if(Dg.Grid[J] && D[J] < 0){D[J] = Dd; Q[T++] = J}}}
+ if(!Src.length) return;
+ let MnX = 1e9, MxX = -1e9, MnY = 1e9, MxY = -1e9;
+ for(const P of Src){const X = Math.floor(P.X / TS), Y = Math.floor(P.Y / TS); MnX = Math.min(MnX, X); MxX = Math.max(MxX, X); MnY = Math.min(MnY, Y); MxY = Math.max(MxY, Y)}
+ const FR = 34; let X0 = MnX - FR, X1 = MxX + FR, Y0 = MnY - FR, Y1 = MxY + FR;
+ if(X1 - X0 + 1 > 220){const C = Math.floor(Player.X / TS); X0 = C - 110; X1 = C + 109}
+ if(Y1 - Y0 + 1 > 220){const C = Math.floor(Player.Y / TS); Y0 = C - 110; Y1 = C + 109}
+ const W = X1 - X0 + 1, H = Y1 - Y0 + 1, D = Dg.Dist, Q = Dg.Q; Dg.FX0 = X0; Dg.FY0 = Y0; Dg.FW = W; Dg.FH = H; D.fill(-1, 0, W * H);
+ let Hd = 0, Tl = 0;
+ for(const P of Src){const X = Math.floor(P.X / TS) - X0, Y = Math.floor(P.Y / TS) - Y0; if(X >= 0 && Y >= 0 && X < W && Y < H && TileT(X + X0, Y + Y0)){const I = Y * W + X; if(D[I] < 0){D[I] = 0; Q[Tl++] = I}}}
+ while(Hd < Tl){
+  const I = Q[Hd++], X = I % W, Y = (I - X) / W, Dd = D[I] + 1;
+  if(X > 0 && D[I - 1] < 0 && TileT(X0 + X - 1, Y0 + Y)){D[I - 1] = Dd; Q[Tl++] = I - 1}
+  if(X < W - 1 && D[I + 1] < 0 && TileT(X0 + X + 1, Y0 + Y)){D[I + 1] = Dd; Q[Tl++] = I + 1}
+  if(Y > 0 && D[I - W] < 0 && TileT(X0 + X, Y0 + Y - 1)){D[I - W] = Dd; Q[Tl++] = I - W}
+  if(Y < H - 1 && D[I + W] < 0 && TileT(X0 + X, Y0 + Y + 1)){D[I + W] = Dd; Q[Tl++] = I + W}
+ }
 }
 function LineClear(X0, Y0, X1, Y1){const Dx = X1 - X0, Dy = Y1 - Y0, L = Math.hypot(Dx, Dy); if(L > 900) return false; const N = Math.ceil(L / 24); for(let I = 1; I < N; I++) if(Solid(X0 + Dx * I / N, Y0 + Dy * I / N)) return false; return true}
 function ChaseVec(En, Dx, Dy, Dist){
  if(Dist < 90 || LineClear(En.X, En.Y, En.X + Dx, En.Y + Dy)) return {X: Dx / Dist, Y: Dy / Dist};
- const I = TileOf(En.X, En.Y); if(I < 0 || I >= GN * GN || Dg.Dist[I] < 0) return {X: Dx / Dist, Y: Dy / Dist};
- const TX = I % GN, TY = (I - TX) / GN; let Best = Dg.Dist[I], BX = 0, BY = 0;
+ const TX = Math.floor(En.X / TS), TY = Math.floor(En.Y / TS), Cur = DistAt(TX, TY); if(Cur < 0) return {X: Dx / Dist, Y: Dy / Dist};
+ let Best = Cur, BX = 0, BY = 0;
  for(let Oy = -1; Oy <= 1; Oy++) for(let Ox = -1; Ox <= 1; Ox++){
-  if(!Ox && !Oy) continue; const NX = TX + Ox, NY = TY + Oy; if(NX < 0 || NY < 0 || NX >= GN || NY >= GN) continue;
-  const Dd = Dg.Dist[NY * GN + NX]; if(Dd < 0 || Dd >= Best) continue; if(Ox && Oy && (!Dg.Grid[TY * GN + NX] || !Dg.Grid[NY * GN + TX])) continue;
-  Best = Dd; BX = Ox; BY = Oy;
+  if(!Ox && !Oy) continue; const Dd = DistAt(TX + Ox, TY + Oy); if(Dd < 0 || Dd >= Best) continue;
+  if(Ox && Oy && (!TileT(TX + Ox, TY) || !TileT(TX, TY + Oy))) continue; Best = Dd; BX = Ox; BY = Oy;
  }
  if(!BX && !BY) return {X: Dx / Dist, Y: Dy / Dist};
  const CX = (TX + BX + .5) * TS - En.X, CY = (TY + BY + .5) * TS - En.Y, L = Math.hypot(CX, CY) || 1; return {X: CX / L, Y: CY / L};
 }
+function Targets(){const Ts = []; if(Player && !Player.Down) Ts.push(Player); for(const R of Party.Remotes) if(R.Alive) Ts.push(R.P); if(!Ts.length && Player) Ts.push(Player); return Ts}
 function SpawnPoint(){
- const Ts = []; if(Player && !Player.Down) Ts.push(Player); for(const R of Party.Remotes) if(R.Alive) Ts.push(R.P); if(!Ts.length && Player) Ts.push(Player);
- let Best = null, BS = -1e9;
- for(let K = 0; K < 40; K++){
-  const I = Dg.Floors[Math.floor(Math.random() * Dg.Floors.length)], X = (I % GN + .5) * TS + RandRange(-22, 22), Y = (Math.floor(I / GN) + .5) * TS + RandRange(-22, 22);
-  let Dm = 1e9; for(const T of Ts) Dm = Math.min(Dm, Math.hypot(X - T.X, Y - T.Y));
-  const Ok = Dm > 420 && Dm < 950 && Dg.Dist[I] >= 0, Score = Ok ? 1000 - Math.abs(Dm - 600) : -Math.abs(Dm - 600);
-  if(Score > BS){BS = Score; Best = {X, Y}} if(Ok && K > 8) break;
+ const Ts = Targets(), P = Ts[Math.floor(Math.random() * Ts.length)] || Player;
+ for(let K = 0; K < 50; K++){
+  const A = Math.random() * Tau, D = RandRange(430, 950), X = P.X + Math.cos(A) * D, Y = P.Y + Math.sin(A) * D, TX = Math.floor(X / TS), TY = Math.floor(Y / TS);
+  if(!TileT(TX, TY) || DistAt(TX, TY) < 0 || HitW(X, Y, 16)) continue; if(Ts.some(T => Math.hypot(X - T.X, Y - T.Y) < 380)) continue;
+  return {X, Y};
  }
- return Best || StartPos(0);
+ return Place(P.X + 500, P.Y);
 }
+function RandFloor(){
+ const P = Player;
+ for(let K = 0; K < 80; K++){const A = Math.random() * Tau, D = RandRange(520, 1300), X = P.X + Math.cos(A) * D, Y = P.Y + Math.sin(A) * D; if(OpenAt(X, Y, 1) && DistAt(Math.floor(X / TS), Math.floor(Y / TS)) >= 0) return {X, Y}}
+ return Place(P.X + 600, P.Y);
+}
+function ZonePlace(){
+ const P = Player;
+ for(let K = 0; K < 80; K++){const A = Math.random() * Tau, D = RandRange(650, 1300), X = P.X + Math.cos(A) * D, Y = P.Y + Math.sin(A) * D; if(OpenAt(X, Y, 3) && DistAt(Math.floor(X / TS), Math.floor(Y / TS)) >= 0) return {X, Y, R: 130}}
+ const F = RandFloor(); return {X: F.X, Y: F.Y, R: 100};
+}
+const SeenAt = (TX, TY, Make) => {const CX = Math.floor(TX / CH), CY = Math.floor(TY / CH), K = ChunkKey(CX, CY); let A = Dg.SeenC.get(K); if(!A){if(!Make) return null; A = new Uint8Array(CH * CH); Dg.SeenC.set(K, A)} return [A, (TY - CY * CH) * CH + (TX - CX * CH)]};
+function MarkSeen(P){const TX = Math.floor(P.X / TS), TY = Math.floor(P.Y / TS); for(let Oy = -9; Oy <= 9; Oy++) for(let Ox = -9; Ox <= 9; Ox++){if(Ox * Ox + Oy * Oy > 81) continue; const S = SeenAt(TX + Ox, TY + Oy, true); S[0][S[1]] = 1}}
 function NewDungeon(Seed){
- GenDungeon(Seed === undefined ? (Math.random() * 2 ** 31) | 0 : Seed); Dg.Seen.fill(0);
+ if(Round > 1 && Dg.Run){FlowUpdate(); return}
+ GenDungeon(Seed === undefined ? (Math.random() * 2 ** 31) | 0 : Seed); Dg.Run = true;
  if(Party.On && Party.Host) Party.DGen = (Party.DGen || 0) + 1;
  const Ps = [Player, ...Party.Remotes.map(R => R.P)]; Ps.forEach((P, I) => {if(!P) return; const S = StartPos(I); P.X = S.X; P.Y = S.Y; P.KnockX = 0; P.KnockY = 0});
  for(const R of Party.Remotes){R.In.x = R.P.X; R.In.y = R.P.Y}
- Camera.X = Player.X; Camera.Y = Player.Y; Pickups = []; Bolts = []; EnemyBolts = []; Meteor = []; FlowUpdate();
+ Camera.X = Player.X; Camera.Y = Player.Y; Pickups = []; Bolts = []; EnemyBolts = []; Meteor = []; Dg.FlowT = 0; FlowUpdate(); MarkSeen(Player);
  for(const En of Enemies){const P = SpawnPoint(); En.X = P.X; En.Y = P.Y}
 }
-function MarkSeen(P){const TX = Math.floor(P.X / TS), TY = Math.floor(P.Y / TS); for(let Oy = -7; Oy <= 7; Oy++) for(let Ox = -7; Ox <= 7; Ox++){const X = TX + Ox, Y = TY + Oy; if(X >= 0 && Y >= 0 && X < GN && Y < GN && Ox * Ox + Oy * Oy <= 50) Dg.Seen[Y * GN + X] = 1}}
+function ChestScan(){
+ if(!Dg.FW) return;
+ const C0 = Math.ceil(Dg.FX0 / CH), C1 = Math.floor((Dg.FX0 + Dg.FW) / CH) - 1, D0 = Math.ceil(Dg.FY0 / CH), D1 = Math.floor((Dg.FY0 + Dg.FH) / CH) - 1;
+ for(let CY = D0; CY <= D1; CY++) for(let CX = C0; CX <= C1; CX++){
+  const K = ChunkKey(CX, CY); if(Dg.Scanned.has(K)) continue; Dg.Scanned.add(K);
+  const R = MakeRng(Dg.Seed ^ Math.imul(CX, 73856093) ^ Math.imul(CY, 19349663)), N = R() < .8 ? (R() < .4 ? 2 : 1) : 0;
+  for(let I = 0; I < N; I++){
+   const TX = CX * CH + 2 + Math.floor(R() * (CH - 4)), TY = CY * CH + 2 + Math.floor(R() * (CH - 4)), X = (TX + .5) * TS, Y = (TY + .5) * TS, Id = K + ':' + I;
+   if(!OpenAt(X, Y, 1) || DistAt(TX, TY) < 0 || Math.hypot(X - (Dg.OX + .5) * TS, Y - (Dg.OY + .5) * TS) < 500 || Dg.Opened.has(Id)) continue;
+   Dg.Chests.push({Id, X, Y, Open: false});
+  }
+ }
+}
+function PruneWorld(){
+ if(Dg.Chunks.size <= 150) return; const Ts = Targets();
+ for(const [K, C] of [...Dg.Chunks]){const CX = Math.floor(K / 65536) - 32768, CY = (K % 65536) - 32768; if(Ts.every(T => Math.abs((CX + .5) * CH * TS - T.X) > 5 * CH * TS || Math.abs((CY + .5) * CH * TS - T.Y) > 5 * CH * TS)) Dg.Chunks.delete(K)}
+ Dg.LK = null;
+ Dg.Chests = Dg.Chests.filter(C => C.Open === false || Ts.some(T => Math.hypot(C.X - T.X, C.Y - T.Y) < 4000));
+}
 function OpenChest(C, W){
- C.Open = true; Ring(C.X, C.Y, '#ffd54a', 60, .4); Burst(C.X, C.Y, '#ffd54a', 18, 240, .6); PlaySfx('Kill');
- const Pos = W.R ? W.R.P : Player, Mh = W.R ? W.R.S.MaximumHealth : Stats.MaximumHealth, Roll = Math.random();
- if(Roll < .28){Pos.Hp = Math.min(Mh, Pos.Hp + Mh * .35); FloatText(C.X, C.Y - 20, '+35% HP', '#7dffa6')}
- else if(Roll < .58){const V = 18 + Round * 5; PartyXp(W.R ? {R: W.R} : null, V); FloatText(C.X, C.Y - 20, '+' + V + ' XP', '#4ff0d6')}
+ C.Open = true; Dg.Opened.add(C.Id); RunStats.Chests = (RunStats.Chests || 0) + 1; Ring(C.X, C.Y, '#ffd54a', 60, .4); Burst(C.X, C.Y, '#ffd54a', 18, 240, .6); PlaySfx('Kill');
+ const Pos = W.R ? W.R.P : Player, Mh = W.R ? W.R.S.MaximumHealth : Stats.MaximumHealth, Roll = Math.random(), Lk = 1 + TreeVal('Lucky');
+ if(Roll < .28){Pos.Hp = Math.min(Mh, Pos.Hp + Mh * .35 * Lk); FloatText(C.X, C.Y - 20, '+' + Math.round(35 * Lk) + '% HP', '#7dffa6')}
+ else if(Roll < .58){const V = Math.round((18 + Round * 5) * Lk); PartyXp(W.R ? {R: W.R} : null, V); FloatText(C.X, C.Y - 20, '+' + V + ' XP', '#4ff0d6')}
  else if(Roll < .80){if(W.R) W.R.Pending++; else Pending++; FloatText(C.X, C.Y - 20, '+1 UPGRADE', '#c77dff')}
- else{const N = 1 + Math.floor(Math.random() * 3); if(W.R) PartySend(W.R.Uid, {t: 'loot', sh: N}); else{Meta.Shards += N; SaveMeta()} FloatText(C.X, C.Y - 20, '+' + N + ' ◆', '#ffd54a')}
+ else{const N = Math.max(1, Math.round((1 + Math.floor(Math.random() * 3)) * Lk)); if(W.R) PartySend(W.R.Uid, {t: 'loot', sh: N}); else{Meta.Shards += N; SaveMeta()} FloatText(C.X, C.Y - 20, '+' + N + ' ◆', '#ffd54a')}
 }
 function DungeonTick(Dt){
- Dg.FlowT -= Dt; if(Dg.FlowT <= 0){Dg.FlowT = .2; FlowUpdate(); MarkSeen(Player)}
+ Dg.FlowT -= Dt; if(Dg.FlowT <= 0){Dg.FlowT = .25; FlowUpdate(); MarkSeen(Player)}
+ Dg.ScanT -= Dt;
+ if(Dg.ScanT <= 0){
+  Dg.ScanT = 1; ChestScan(); PruneWorld(); const Ts = Targets();
+  Enemies = Enemies.filter(E => E.Boss || E.Elite || E.Goblin || Ts.some(T => Math.hypot(E.X - T.X, E.Y - T.Y) < 2600));
+ }
  for(const En of Enemies) if(HitW(En.X, En.Y, 2)){const P = Place(En.X, En.Y); En.X = P.X; En.Y = P.Y}
  if(HitW(Player.X, Player.Y, 2)){const P = Place(Player.X, Player.Y); Player.X = P.X; Player.Y = P.Y}
  for(const C of Dg.Chests){
@@ -2287,85 +2351,266 @@ function DungeonTick(Dt){
   if(W) OpenChest(C, W);
  }
 }
+
+/* ----- rendering: rounded, organic caves with grass, pools, pebbles, glowing fungus and fireflies ----- */
+function RR(P, X, Y, W, H, R){P.moveTo(X + R, Y); P.arcTo(X + W, Y, X + W, Y + H, R); P.arcTo(X + W, Y + H, X, Y + H, R); P.arcTo(X, Y + H, X, Y, R); P.arcTo(X, Y, X + W, Y, R); P.closePath()}
+function RRc(P, X, Y, W, H, A, B, C, D){
+ P.moveTo(X + A, Y); P.lineTo(X + W - B, Y); if(B) P.arcTo(X + W, Y, X + W, Y + B, B); else P.lineTo(X + W, Y);
+ P.lineTo(X + W, Y + H - C); if(C) P.arcTo(X + W, Y + H, X + W - C, Y + H, C); else P.lineTo(X + W, Y + H);
+ P.lineTo(X + D, Y + H); if(D) P.arcTo(X, Y + H, X, Y + H - D, D); else P.lineTo(X, Y + H);
+ P.lineTo(X, Y + A); if(A) P.arcTo(X, Y, X + A, Y, A); else P.lineTo(X, Y); P.closePath();
+}
 function DrawDungeon(){
- const HW = Width / 2 / Zoom + TS, HH = Height / 2 / Zoom + TS;
- Context.fillStyle = '#070918'; Context.fillRect(Camera.X - HW, Camera.Y - HH, HW * 2, HH * 2);
- const X0 = Math.max(0, Math.floor((Camera.X - HW) / TS)), X1 = Math.min(GN - 1, Math.ceil((Camera.X + HW) / TS)), Y0 = Math.max(0, Math.floor((Camera.Y - HH) / TS)), Y1 = Math.min(GN - 1, Math.ceil((Camera.Y + HH) / TS));
- const Gd = Dg.Grid, At = (X, Y) => X >= 0 && Y >= 0 && X < GN && Y < GN && Gd[Y * GN + X];
+ const HW = Width / 2 / Zoom + TS * 2, HH = Height / 2 / Zoom + TS * 2;
+ const X0 = Math.floor((Camera.X - HW) / TS), X1 = Math.ceil((Camera.X + HW) / TS), Y0 = Math.floor((Camera.Y - HH) / TS), Y1 = Math.ceil((Camera.Y + HH) / TS);
+ Context.fillStyle = '#04050c'; Context.fillRect(Camera.X - HW, Camera.Y - HH, HW * 2, HH * 2);
+ const All = new Path2D(), Wt = new Path2D(), Gr = new Path2D(), Lt = new Path2D();
  for(let Y = Y0; Y <= Y1; Y++) for(let X = X0; X <= X1; X++){
-  if(Gd[Y * GN + X]){Context.fillStyle = (X + Y) & 1 ? '#141a3a' : '#111638'; Context.fillRect(X * TS, Y * TS, TS, TS)}
-  else if(At(X - 1, Y) || At(X + 1, Y) || At(X, Y - 1) || At(X, Y + 1) || At(X - 1, Y - 1) || At(X + 1, Y - 1) || At(X - 1, Y + 1) || At(X + 1, Y + 1)){
-   Context.fillStyle = '#232b5c'; Context.fillRect(X * TS, Y * TS, TS, TS); Context.fillStyle = '#323d80'; Context.fillRect(X * TS, Y * TS, TS, 5);
-  }
+  const T = TileT(X, Y); if(!T) continue;
+  const Wn = TileT(X - 1, Y), En = TileT(X + 1, Y), Nn = TileT(X, Y - 1), Sn = TileT(X, Y + 1);
+  RRc(All, X * TS - 2, Y * TS - 2, TS + 4, TS + 4, !Wn && !Nn ? 17 : 0, !En && !Nn ? 17 : 0, !En && !Sn ? 17 : 0, !Wn && !Sn ? 17 : 0);
+  if(T !== 1) RRc(T === 2 ? Wt : Gr, X * TS - 2, Y * TS - 2, TS + 4, TS + 4, Wn !== T && Nn !== T ? 17 : 0, En !== T && Nn !== T ? 17 : 0, En !== T && Sn !== T ? 17 : 0, Wn !== T && Sn !== T ? 17 : 0);
+  if(NH(7, X, Y) < .22) RR(Lt, X * TS + 6, Y * TS + 6, TS - 12, TS - 12, 9);
  }
- Context.strokeStyle = '#1b2250'; Context.lineWidth = 1; Context.beginPath();
- for(let Y = Y0; Y <= Y1; Y++) for(let X = X0; X <= X1; X++) if(Gd[Y * GN + X]){Context.moveTo(X * TS, Y * TS); Context.lineTo((X + 1) * TS, Y * TS); Context.moveTo(X * TS, Y * TS); Context.lineTo(X * TS, (Y + 1) * TS)}
- Context.stroke();
+ Context.lineJoin = 'round'; Context.lineWidth = 11; Context.strokeStyle = '#303657'; Context.stroke(All);
+ Context.lineWidth = 5; Context.strokeStyle = '#161a2d'; Context.stroke(All);
+ Context.fillStyle = '#262b3d'; Context.fill(All);
+ Context.fillStyle = '#1e4a2e'; Context.fill(Gr);
+ Context.fillStyle = '#15497a'; Context.fill(Wt);
+ Context.fillStyle = 'rgba(255,255,255,.04)'; Context.fill(Lt);
+ const Rich = !(Settings.Quality < 1);
+ for(let Y = Y0; Y <= Y1; Y++) for(let X = X0; X <= X1; X++){
+  const T = TileT(X, Y); if(!T) continue; const H = NH(11, X, Y), PX = X * TS, PY = Y * TS;
+  if(T === 2){Context.globalAlpha = .1 + .08 * Math.sin(Time * 1.6 + X * .9 + Y * 1.3); Context.fillStyle = '#9fdcff'; Context.fillRect(PX + 6, PY + 8 + ((Time * 6 + X * 7) % 20), TS - 14, 3); Context.globalAlpha = 1}
+  else if(T === 3 && H < .4){Context.strokeStyle = '#34864f'; Context.lineWidth = 2; Context.beginPath(); for(let K = 0; K < 3; K++){const BX = PX + 8 + K * 10 + H * 8, BY = PY + 22 + K * 4; Context.moveTo(BX, BY); Context.lineTo(BX - 2, BY - 8); Context.moveTo(BX, BY); Context.lineTo(BX + 3, BY - 7)} Context.stroke()}
+  else if(T === 1 && H < .12){Context.fillStyle = '#343a52'; Context.beginPath(); Context.ellipse(PX + 12 + H * 60, PY + 14, 4, 3, 0, 0, Tau); Context.ellipse(PX + 26, PY + 26, 3, 2.4, 0, 0, Tau); Context.fill()}
+  if(Rich && T !== 2 && H > .95 && !TileT(X - 1, Y)){Context.globalAlpha = .25 + .1 * Math.sin(Time * 2 + X); Context.fillStyle = '#4ff0d6'; Context.beginPath(); Context.arc(PX + 6, PY + 20, 11, 0, Tau); Context.fill(); Context.globalAlpha = 1; Context.fillStyle = '#9ffff0'; Context.beginPath(); Context.arc(PX + 6, PY + 20, 2.6, 0, Tau); Context.fill()}
+ }
  for(const C of Dg.Chests){
   if(Math.abs(C.X - Camera.X) > HW || Math.abs(C.Y - Camera.Y) > HH) continue;
-  if(!C.Open){Context.globalAlpha = .22 + .12 * Math.sin(Time * 3); Context.fillStyle = '#ffd54a'; Poly(C.X, C.Y, 28, 0); Context.fill(); Context.globalAlpha = 1}
+  if(!C.Open){Context.globalAlpha = .22 + .12 * Math.sin(Time * 3); Context.fillStyle = '#ffd54a'; Context.beginPath(); Context.arc(C.X, C.Y, 28, 0, Tau); Context.fill(); Context.globalAlpha = 1}
   Context.fillStyle = C.Open ? '#5a4a1a' : '#ffd54a'; Context.fillRect(C.X - 13, C.Y - 9, 26, 18); Context.fillStyle = C.Open ? '#3a2f10' : '#b8870a'; Context.fillRect(C.X - 13, C.Y - 9, 26, 6);
   if(!C.Open){Context.fillStyle = '#fff8'; Context.fillRect(C.X - 2, C.Y - 3, 4, 7)}
  }
+ if(Rich){
+  Context.fillStyle = '#f5e68a';
+  for(let K = 0; K < 22; K++){const A = NH(5, K, 1), B = NH(5, K, 2), X = Camera.X + (A - .5) * HW * 2 + Math.sin(Time * .5 + K) * 26, Y = Camera.Y + (B - .5) * HH * 2 + Math.cos(Time * .4 + K * 2) * 20; if(!TileT(Math.floor(X / TS), Math.floor(Y / TS))) continue; Context.globalAlpha = .35 + .35 * Math.sin(Time * 2 + K * 3); Context.beginPath(); Context.arc(X, Y, 2.4, 0, Tau); Context.fill()}
+  Context.globalAlpha = 1;
+ }
+}
+function DrawVignette(){
+ if(!Player || Mode === 'menu') return;
+ const G = Context.createRadialGradient(Width / 2, Height / 2, Math.min(Width, Height) * .3, Width / 2, Height / 2, Math.hypot(Width, Height) * .62);
+ G.addColorStop(0, 'rgba(2,3,10,0)'); G.addColorStop(1, 'rgba(2,3,10,.8)'); Context.fillStyle = G; Context.fillRect(0, 0, Width, Height);
+}
+function UpdateMini(){
+ const N = 56, S = 3; if(!Dg.Mini){Dg.Mini = document.createElement('canvas'); Dg.Mini.width = Dg.Mini.height = N * S}
+ const X = Dg.Mini.getContext('2d'), TX = Math.floor(Player.X / TS) - N / 2, TY = Math.floor(Player.Y / TS) - N / 2; Dg.MiniX = TX; Dg.MiniY = TY;
+ X.clearRect(0, 0, N * S, N * S); X.fillStyle = 'rgba(6,8,20,.85)'; X.fillRect(0, 0, N * S, N * S);
+ const Cols = ['', '#3c4470', '#2c6aa6', '#2f7a47'];
+ for(let Y = 0; Y < N; Y++) for(let I = 0; I < N; I++){const SA = SeenAt(TX + I, TY + Y, false); if(!SA || !SA[0][SA[1]]) continue; const T = TileT(TX + I, TY + Y); if(T){X.fillStyle = Cols[T]; X.fillRect(I * S, Y * S, S, S)}}
 }
 function DrawMinimap(){
  if(!Player || Mode === 'dying') return;
- const S = 3, X0 = Width - GN * S - 12, Y0 = SafeTop + 120;
- Context.globalAlpha = .8; Context.fillStyle = '#080a18'; Context.fillRect(X0 - 3, Y0 - 3, GN * S + 6, GN * S + 6);
- Context.fillStyle = '#2a3370'; for(let Y = 0; Y < GN; Y++) for(let X = 0; X < GN; X++){const I = Y * GN + X; if(Dg.Seen[I] && Dg.Grid[I]) Context.fillRect(X0 + X * S, Y0 + Y * S, S, S)}
- const Dot = (X, Y, C, R) => {Context.fillStyle = C; Context.fillRect(X0 + X / TS * S - R, Y0 + Y / TS * S - R, R * 2, R * 2)};
- for(const C of Dg.Chests) if(!C.Open && Dg.Seen[TileOf(C.X, C.Y)]) Dot(C.X, C.Y, '#ffd54a', 1.5);
+ const N = 56, S = 3, X0 = Width - N * S - 12, Y0 = SafeTop + 120, Now = performance.now();
+ if(!Dg.Mini || Now - Dg.MiniAt > 350){UpdateMini(); Dg.MiniAt = Now}
+ Context.globalAlpha = .9; Context.drawImage(Dg.Mini, X0, Y0);
+ const Dot = (X, Y, C, R) => {const PX = X0 + (X / TS - Dg.MiniX) * S, PY = Y0 + (Y / TS - Dg.MiniY) * S; if(PX < X0 || PY < Y0 || PX > X0 + N * S || PY > Y0 + N * S) return; Context.fillStyle = C; Context.fillRect(PX - R, PY - R, R * 2, R * 2)};
+ for(const C of Dg.Chests) if(!C.Open){const SA = SeenAt(Math.floor(C.X / TS), Math.floor(C.Y / TS), false); if(SA && SA[0][SA[1]]) Dot(C.X, C.Y, '#ffd54a', 1.5)}
  for(const C of Crystals) if(!C.Got) Dot(C.X, C.Y, '#ffc857', 1.5);
  if(Zone) Dot(Zone.X, Zone.Y, '#ffc857', 3);
  for(const O of (Party.Host ? Party.Remotes.map(R => R.P) : Party.Others)) Dot(O.X, O.Y, '#ffffff', 1.5);
- Dot(Player.X, Player.Y, '#4ff0d6', 2); Context.globalAlpha = 1; Context.strokeStyle = '#2a3370'; Context.lineWidth = 1; Context.strokeRect(X0 - 3, Y0 - 3, GN * S + 6, GN * S + 6);
+ Dot(Player.X, Player.Y, '#4ff0d6', 2); Context.globalAlpha = 1; Context.strokeStyle = '#2a3370'; Context.lineWidth = 1; Context.strokeRect(X0, Y0, N * S, N * S);
 }
 const TraitTickDG = TraitTick;
 TraitTick = function(Dt){TraitTickDG(Dt); if(Player && Mode === 'play') DungeonTick(Dt)};
 GenDungeon(1);
 
-/* ---------- v12: infinite upgrade tree (replaces the Workshop) ---------- */
-const Tree = [
- {K: 'Vigor', N: 'Vigor', B: 'Survival', Per: 10, U: ' max HP', Base: 12, Req: null},
- {K: 'Plate', N: 'Plating', B: 'Survival', Per: .6, U: ' defense', Base: 14, Req: ['Vigor', 3]},
- {K: 'Regen', N: 'Regeneration', B: 'Survival', Per: .2, U: ' HP/s', Base: 16, Req: ['Plate', 3], Cap: 4},
- {K: 'Dodge', N: 'Evasion', B: 'Survival', Per: .012, P: 1, Base: 20, Req: ['Regen', 3], Cap: .4},
- {K: 'Leech', N: 'Leech', B: 'Survival', Per: .004, P: 1, Base: 18, Req: ['Vigor', 5], Cap: .12},
- {K: 'Might', N: 'Might', B: 'Offense', Per: .5, U: ' damage', Base: 14, Req: null},
- {K: 'Haste', N: 'Haste', B: 'Offense', Per: .03, P: 1, Base: 18, Req: ['Might', 3], Cap: .9},
- {K: 'Blast', N: 'Blast Core', B: 'Offense', Per: 6, U: ' blast radius', Base: 16, Req: ['Haste', 3], Cap: 140},
- {K: 'Prime', N: 'Prime', B: 'Offense', Per: .25, U: ' start element levels', Base: 30, Req: ['Might', 6], Int: 1},
- {K: 'Thrust', N: 'Thrusters', B: 'Utility', Per: .025, P: 1, Base: 12, Req: null, Cap: .7},
- {K: 'Magnet', N: 'Magnet', B: 'Utility', Per: 15, U: ' pickup range', Base: 10, Req: ['Thrust', 3], Cap: 300},
- {K: 'Scholar', N: 'Scholar', B: 'Utility', Per: .04, P: 1, Base: 14, Req: ['Magnet', 3], Cap: 1},
- {K: 'Fortune', N: 'Fortune', B: 'Utility', Per: .03, P: 1, Base: 16, Req: ['Scholar', 3], Cap: .6},
- {K: 'Banker', N: 'Banker', B: 'Utility', Per: .04, P: 1, Base: 18, Req: ['Fortune', 3], Cap: 1},
- {K: 'Quick', N: 'Quickstep', B: 'Skills', Per: .1, U: 's dash cooldown', Base: 12, Req: null, Cap: 1.1},
- {K: 'NovaC', N: 'Nova Core', B: 'Skills', Per: 1, U: 's nova cooldown', Base: 14, Req: ['Quick', 3], Cap: 9},
- {K: 'Spare', N: 'Rerolls', B: 'Skills', Per: .34, U: ' extra rerolls', Base: 22, Req: ['Quick', 4], Int: 1},
- {K: 'Head', N: 'Head Start', B: 'Skills', Per: .25, U: ' upgrade at run start', Base: 40, Req: ['NovaC', 3], Int: 1}
-];
-const TreeBy = Object.fromEntries(Tree.map(N => [N.K, N]));
-const EffLv = L => L <= 10 ? L : 10 + 6 * Math.log2(1 + (L - 10) / 6);
-const TreeAt = (N, L) => {let V = N.Per * EffLv(L); if(N.Int) V = Math.floor(V + 1e-9); if(N.Cap !== undefined) V = Math.min(N.Cap, V); return V};
-const TreeVal = K => TreeAt(TreeBy[K], (Meta.Up && Meta.Up[K]) || 0);
-const TreeCost = (N, L) => Math.round(N.Base * Math.pow(1.24, L));
-const TreeOpen = N => !N.Req || ((Meta.Up[N.Req[0]] || 0) >= N.Req[1]);
-function TreeBuy(K){const N = TreeBy[K]; if(!N) return false; const L = Meta.Up[K] || 0, C = TreeCost(N, L); if(!TreeOpen(N) || Meta.Shards < C) return false; Meta.Shards -= C; Meta.Up[K] = L + 1; SaveMeta(); return true}
+/* ---------- v13: hexagonal upgrade tree (infinite, different for every player) ---------- */
+const HEXN = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+const HexD = (Q, R) => (Math.abs(Q) + Math.abs(R) + Math.abs(Q + R)) / 2;
+const SD = {
+ Vigor: {N: 'Vigor', G: '✚', Cat: 'Defense', Per: 8, U: ' max HP'},
+ Plate: {N: 'Plating', G: '▣', Cat: 'Defense', Per: .5, U: ' defense'},
+ Regen: {N: 'Regeneration', G: '♥', Cat: 'Defense', Per: .15, U: ' HP/s', Cap: 4},
+ Dodge: {N: 'Evasion', G: '≋', Cat: 'Defense', Per: .01, P: 1, Cap: .4},
+ Leech: {N: 'Leech', G: '◆', Cat: 'Defense', Per: .003, P: 1, Cap: .12},
+ Might: {N: 'Might', G: '●', Cat: 'Offense', Per: .4, U: ' damage'},
+ Haste: {N: 'Haste', G: '▲', Cat: 'Offense', Per: .025, P: 1, Cap: .9},
+ Blast: {N: 'Blast Core', G: '✺', Cat: 'Offense', Per: 5, U: ' blast radius', Cap: 140},
+ Thrust: {N: 'Thrusters', G: '▶', Cat: 'Utility', Per: .02, P: 1, Cap: .7},
+ Magnet: {N: 'Magnet', G: '◐', Cat: 'Utility', Per: 12, U: ' pickup range', Cap: 300},
+ Scholar: {N: 'Scholar', G: '★', Cat: 'Utility', Per: .03, P: 1, Cap: 1},
+ Fortune: {N: 'Fortune', G: '♣', Cat: 'Utility', Per: .025, P: 1, Cap: .6},
+ Banker: {N: 'Banker', G: '$', Cat: 'Utility', Per: .03, P: 1, Cap: 1},
+ Quick: {N: 'Quickstep', G: '»', Cat: 'Skill', Per: .08, U: 's dash cooldown', Cap: 1.1},
+ NovaC: {N: 'Nova Core', G: '✱', Cat: 'Skill', Per: .8, U: 's nova cooldown', Cap: 9},
+ Spare: {N: 'Rerolls', G: '↻', Cat: 'Skill', Per: .45, Int: 1, U: ' extra rerolls', Sp: 1},
+ Head: {N: 'Head Start', G: '⬆', Cat: 'Skill', Per: .3, Int: 1, U: ' upgrade at run start', Sp: 1},
+ Lucky: {N: 'Treasure Sense', G: '✦', Cat: 'Utility', Per: .07, P: 1, Cap: 1.2, U: ' chest rewards', Sp: 1},
+ Hunter: {N: 'Goblin Hunter', G: '♠', Cat: 'Utility', Per: .1, P: 1, Cap: 2, U: ' goblin spawns', Sp: 1}
+};
+const CatCol = {Offense: '#f59e0b', Defense: '#3b82f6', Utility: '#22c55e', Skill: '#a855f7', Special: '#facc15'};
+const BasicKeys = ['Vigor', 'Might', 'Thrust', 'Quick', 'Plate', 'Haste', 'Magnet', 'Scholar'], SpecialKeys = ['Spare', 'Head', 'Lucky', 'Hunter'], NormalKeys = Object.keys(SD).filter(K => !SD[K].Sp);
+const NewSeed = () => (Math.random() * 2 ** 31) | 0;
+const TM = () => (Meta.Tree && typeof Meta.Tree.Seed === 'number' && Meta.Tree.Lv ? Meta.Tree : (Meta.Tree = {Seed: NewSeed(), Lv: {}, Ver: 0}));
+const NodeCaches = new Map();
+function BuildNode(S, Q, R){
+ const D = HexD(Q, R);
+ if(D === 0) return {Q, R, D, Kind: 'core', N: 'Core', G: '◈', Cat: 'Special', Col: '#4ff0d6', Max: 0};
+ const H = NH(S, Q * 73 + 11, R * 131 + 7), H2 = NH(S + 5, Q * 29 + 3, R * 61 + 1);
+ let Kind = 'stat', Key = null;
+ if(D === 1){
+  const Order = BasicKeys.slice().sort((A, B) => NH(S, A.charCodeAt(0) * 7 + A.length, 5) - NH(S, B.charCodeAt(0) * 7 + B.length, 5)), Ix = HEXN.findIndex(([A, B]) => A === Q && B === R);
+  Key = Order[Ix];
+ }else{
+  const Roll = H * 100;
+  if(Roll < 60){const Pool = D <= 2 ? BasicKeys.concat(['Regen', 'Leech', 'NovaC']) : NormalKeys; Key = Pool[Math.floor(H2 * Pool.length)]}
+  else if(Roll < 74){Kind = 'elem'; Key = ElemNames[Math.floor(H2 * 4)]}
+  else if(Roll < 88){Key = SpecialKeys[Math.floor(H2 * 4)]; if(D < 3 && Key === 'Head') Key = 'Lucky'}
+  else Kind = 'way';
+ }
+ const Sp = Kind === 'stat' && SD[Key].Sp, N = {Q, R, D, Kind, Key, Sp: !!Sp, Mult: 1 + D * .05};
+ N.Max = Sp ? Math.min(10, 2 + Math.floor(D * .5)) : Math.min(25, 3 + Math.floor(D * .8));
+ if(Kind === 'stat'){N.N = SD[Key].N; N.G = SD[Key].G; N.Cat = Sp ? 'Special' : SD[Key].Cat; N.Col = Sp ? CatCol.Special : CatCol[SD[Key].Cat]}
+ else if(Kind === 'elem'){N.N = Key + ' Affinity'; N.G = ''; N.Cat = 'Elem'; N.Col = '#cbd5e1'}
+ else{N.N = 'Waystone'; N.G = '✧'; N.Cat = 'Way'; N.Col = '#94a3b8'}
+ return N;
+}
+function NodeAt(Q, R){
+ const T = TM(); let C = NodeCaches.get(T.Seed); if(!C){C = new Map(); NodeCaches.set(T.Seed, C); if(NodeCaches.size > 8) NodeCaches.delete(NodeCaches.keys().next().value)}
+ const K = Q + ',' + R; let N = C.get(K); if(!N){N = BuildNode(T.Seed, Q, R); C.set(K, N)} return N;
+}
+const NodeCost = (N, L) => Math.round((N.Kind === 'elem' ? 14 : N.Kind === 'way' ? 7 : N.Sp ? 22 : 9) * Math.pow(1.19, N.D) * Math.pow(1.32, L));
+const LvOf = (Q, R) => (TM().Lv[Q + ',' + R] | 0);
+const Owned = (Q, R) => (Q === 0 && R === 0) || LvOf(Q, R) > 0;
+const IsOpen = (Q, R) => !Owned(Q, R) && HEXN.some(([A, B]) => Owned(Q + A, R + B));
+const IsMystery = (Q, R) => !Owned(Q, R) && !IsOpen(Q, R) && HEXN.some(([A, B]) => IsOpen(Q + A, R + B));
+const TC = {Obj: null, Ver: -1, Tot: {}, Vals: {}};
+function Totals(){
+ const T = TM(); if(TC.Obj === T && TC.Ver === T.Ver) return TC.Tot;
+ const Tot = {};
+ for(const K in T.Lv){
+  const Lv = T.Lv[K] | 0; if(Lv <= 0) continue; const [Q, R] = K.split(',').map(Number), N = NodeAt(Q, R); if(!N || N.Kind === 'core') continue;
+  if(N.Kind === 'stat') Tot[N.Key] = (Tot[N.Key] || 0) + SD[N.Key].Per * N.Mult * Lv;
+  else if(N.Kind === 'elem') Tot['Aff_' + N.Key] = (Tot['Aff_' + N.Key] || 0) + Lv;
+  else{Tot.Vigor = (Tot.Vigor || 0) + 2 * Lv; Tot.Might = (Tot.Might || 0) + .1 * Lv}
+ }
+ TC.Obj = T; TC.Ver = T.Ver; TC.Tot = Tot; TC.Vals = {}; return Tot;
+}
+function TreeVal(K){
+ const Tot = Totals(); if(TC.Vals[K] !== undefined) return TC.Vals[K];
+ let V; if(K.indexOf('Aff_') === 0) V = Math.floor((Tot[K] || 0) / 3);
+ else{const D = SD[K], Raw = Tot[K] || 0, Kk = D.Per * 10; V = Raw <= Kk ? Raw : Kk + Kk * Math.log2(1 + (Raw - Kk) / Kk); if(D.Cap !== undefined) V = Math.min(D.Cap, V); if(D.Int) V = Math.floor(V + 1e-9)}
+ return TC.Vals[K] = V;
+}
 function ApplyTree(){
  const V = K => TreeVal(K);
  Stats.MaximumHealth += V('Vigor'); Player.Hp = Stats.MaximumHealth; Stats.Defense += V('Plate'); Stats.Regeneration += V('Regen');
  Stats.Evasion = Math.min(StatCaps.Evasion, Stats.Evasion + V('Dodge')); Stats.Lifesteal = Math.min(StatCaps.Lifesteal, Stats.Lifesteal + V('Leech'));
- Stats.Damage += V('Might'); Stats.FireRate *= 1 + V('Haste'); Stats.BlastRadius += V('Blast'); Elem[SelElem] += V('Prime');
+ Stats.Damage += V('Might'); Stats.FireRate *= 1 + V('Haste'); Stats.BlastRadius += V('Blast'); Elem[SelElem] += V('Aff_' + SelElem);
  Stats.MovementSpeed *= 1 + V('Thrust'); Stats.PickupRange += V('Magnet'); Stats.ExperienceBonus += V('Scholar'); Stats.Luck += V('Fortune');
  Rerolls += V('Spare'); Pending += V('Head');
 }
-function TreeNode(N){
- const L = Meta.Up[N.K] || 0, Open = TreeOpen(N), C = TreeCost(N, L), Can = Open && Meta.Shards >= C;
- const Fmt = V => N.P ? '+' + (V * 100).toFixed(V * 100 < 10 ? 1 : 0) + '%' : '+' + (N.Int ? V : +V.toFixed(2)) + (N.U || '');
- return `<button class="TNode ${N.Req ? 'Child' : ''} ${Open ? '' : 'Lock'} ${Can ? 'Can' : ''}" data-up="${N.K}" title="${N.N} · Shift-click buys 10"><span class="TName">${N.N}<b>Lv ${L}</b></span><span class="TEff">${Fmt(TreeAt(N, L))} → ${Fmt(TreeAt(N, L + 1))}</span><span class="TCost">${Open ? '◆ ' + C : 'Needs ' + TreeBy[N.Req[0]].N + ' ' + N.Req[1]}</span></button>`;
+function TreeBuyNode(Q, R){
+ const N = NodeAt(Q, R); if(!N || N.Kind === 'core' || !(Owned(Q, R) || IsOpen(Q, R))) return false;
+ const L = LvOf(Q, R); if(L >= N.Max) return false; const C = NodeCost(N, L); if(Meta.Shards < C) return false;
+ Meta.Shards -= C; const T = TM(); T.Lv[Q + ',' + R] = L + 1; T.Ver++; SaveMeta(); return true;
 }
-function TreeHtml(){return `<div class="TreeGrid">${['Survival', 'Offense', 'Utility', 'Skills'].map(B => `<div class="TreeCol"><div class="TreeHead">${B}</div>${Tree.filter(N => N.B === B).map(TreeNode).join('')}</div>`).join('')}</div>`}
+const OldBase = {Vigor: 12, Plate: 14, Regen: 16, Dodge: 20, Leech: 18, Might: 14, Haste: 18, Blast: 16, Prime: 30, Thrust: 12, Magnet: 10, Scholar: 14, Fortune: 16, Banker: 18, Quick: 12, NovaC: 14, Spare: 22, Head: 40};
+function MigrateTree(){
+ const T = TM(); if(T.Migrated) return; let Refund = 0;
+ for(const K in (Meta.Up || {})){const B = OldBase[K] || 14, L = Meta.Up[K] | 0; for(let I = 0; I < L; I++) Refund += Math.round(B * Math.pow(1.24, I))}
+ if(Refund > 0){Meta.Shards += Refund; Meta.Up = {}; MenuNote = 'The upgrade tree is now a hex map. Your old upgrades were refunded as ' + Refund + ' shards.'}
+ T.Migrated = 1; SaveMeta();
+}
+function CleanTree(X){
+ const O = {Seed: 1, Lv: {}, Ver: 0}; if(!X || typeof X !== 'object') return O; if(Number.isFinite(X.Seed)) O.Seed = X.Seed | 0;
+ let N = 0; for(const K in (X.Lv || {})){if(N++ > 400) break; if(!/^-?\d{1,3},-?\d{1,3}$/.test(K)) continue; const V = Math.floor(X.Lv[K]); if(V > 0) O.Lv[K] = Math.min(40, V)}
+ return O;
+}
+function TreeHtml(){
+ const T = TM(), Keys = Object.keys(T.Lv).filter(K => T.Lv[K] > 0), Far = Keys.reduce((A, K) => Math.max(A, HexD(...K.split(',').map(Number))), 0);
+ return `<div class="TreeSum"><p class="Lead" style="margin:0 0 10px">Your upgrade tree is a hexagon map that never ends, and it is different for every player. Unlock a glowing hex next to one you own to grow it.</p><div class="PGrid2"><div class="Pick"><span class="PBig">${Keys.length}</span><span class="PSub">hexes unlocked</span></div><div class="Pick"><span class="PBig">${Far}</span><span class="PSub">furthest ring</span></div></div><button class="PlayBtn" style="margin-top:12px;font-size:20px;padding:10px 24px;min-height:48px" data-act="treeopen">⬡ Open upgrade tree</button><p class="PSub" style="margin-top:8px">Tree #${T.Seed}</p></div>`;
+}
+
+/* ----- the hex map screen (pan, zoom, tap a hex) ----- */
+const TV = {On: false, X: 0, Y: 0, Z: 1, Sel: null, Ptr: new Map(), Moved: false, Pinch: 0, Raf: 0, S: 46};
+const TVEl = document.createElement('div'); TVEl.id = 'TreeView';
+TVEl.innerHTML = '<canvas id="TreeCv"></canvas><div id="TreeShards"></div><div id="TreeInfo"></div><button id="TreeExit">Exit</button><div id="TreeZoom"><button data-z="1">+</button><button data-z="-1">−</button></div>';
+document.body.appendChild(TVEl);
+const TCv = TVEl.querySelector('#TreeCv'), TCx = TCv.getContext('2d');
+function TreeResize(){const D = devicePixelRatio || 1; TV.W = Width; TV.H = Height; TV.D = D; TV.Oy = Height < 520 ? -Height * .16 : -Height * .06; TCv.width = Width * D; TCv.height = Height * D; TCv.style.width = Width + 'px'; TCv.style.height = Height + 'px'}
+function TreeOpen(){TV.On = true; TVEl.classList.add('On'); TreeResize(); TV.X = 0; TV.Y = 0; TV.Z = Width < 700 ? .85 : 1; TV.Sel = null; TreeInfo(); cancelAnimationFrame(TV.Raf); TV.Raf = requestAnimationFrame(TreeLoop)}
+function TreeClose(){TV.On = false; TVEl.classList.remove('On'); cancelAnimationFrame(TV.Raf); ShowMenu()}
+const Fmt1 = (N, V) => N.Kind === 'stat' && SD[N.Key].P ? '+' + (V * 100).toFixed(V * 100 < 10 ? 1 : 0) + '%' + (SD[N.Key].U || '') : '+' + (+V.toFixed(2)) + (N.Kind === 'stat' ? SD[N.Key].U || '' : '');
+function TreeInfo(){
+ const E = TVEl.querySelector('#TreeInfo'); TVEl.querySelector('#TreeShards').textContent = '◆ ' + Meta.Shards + ' shards';
+ if(!TV.Sel){E.innerHTML = '<span class="TI">Drag to explore · tap a hex · pinch or scroll to zoom</span>'; return}
+ const [Q, R] = TV.Sel, N = NodeAt(Q, R), Mys = IsMystery(Q, R) && !IsOpen(Q, R) && !Owned(Q, R), Lock = !Owned(Q, R) && !IsOpen(Q, R);
+ if(Lock){E.innerHTML = '<span class="TI">' + (Mys ? '❓ Unlock a neighbouring hex to reveal this one.' : 'Too far away.') + '</span>'; return}
+ const L = LvOf(Q, R), Cost = NodeCost(N, L); let Eff = '';
+ if(N.Kind === 'core') Eff = 'Your starting point. Buy a glowing hex next to an owned one.';
+ else if(N.Kind === 'stat'){const P = SD[N.Key].Per * N.Mult; Eff = Fmt1(N, P) + ' per level · all your hexes together give ' + Fmt1(N, TreeVal(N.Key)) + (SD[N.Key].Cap !== undefined ? ' (cap ' + Fmt1(N, SD[N.Key].Cap) + ')' : '')}
+ else if(N.Kind === 'elem') Eff = 'Every 3 levels: +1 starting ' + N.Key + ' level when you start as ' + N.Key + '. You have +' + TreeVal('Aff_' + N.Key) + '.';
+ else Eff = '+2 max HP and +0.1 damage per level.';
+ const Max = N.Kind === 'core' ? '' : (L >= N.Max ? '<b>MAX</b>' : '◆ ' + Cost), Can = N.Kind !== 'core' && L < N.Max && Meta.Shards >= Cost;
+ E.innerHTML = `<b>${HtmlEsc(N.N)}</b> <span class="TI">${N.Kind === 'core' ? '' : 'Lv ' + L + '/' + N.Max + ' · ring ' + N.D}</span><div class="TI">${HtmlEsc(Eff)}</div>${N.Kind === 'core' ? '' : `<div class="TB"><button data-tb="1" ${Can ? '' : 'disabled'}>Buy ${Max}</button><button data-tb="10" ${Can ? '' : 'disabled'}>Buy ×10</button></div>`}`;
+}
+function HexPath(Cx, Cy, S){TCx.beginPath(); for(let I = 0; I < 6; I++){const A = Math.PI / 180 * (60 * I - 30), X = Cx + S * Math.cos(A), Y = Cy + S * Math.sin(A); I ? TCx.lineTo(X, Y) : TCx.moveTo(X, Y)} TCx.closePath()}
+function ElemShape(Cx, Cy, R, N){TCx.beginPath(); if(N === 'Water') TCx.arc(Cx, Cy, R, 0, Tau); else if(N === 'Fire'){TCx.moveTo(Cx, Cy - R); TCx.lineTo(Cx + R * .95, Cy + R * .75); TCx.lineTo(Cx - R * .95, Cy + R * .75); TCx.closePath()} else if(N === 'Earth') TCx.rect(Cx - R * .8, Cy - R * .8, R * 1.6, R * 1.6); else{TCx.moveTo(Cx, Cy - R); TCx.lineTo(Cx + R, Cy); TCx.lineTo(Cx, Cy + R); TCx.lineTo(Cx - R, Cy); TCx.closePath()} TCx.fill()}
+function TreeDraw(){
+ const W = TV.W, H = TV.H, Z = TV.Z, S = TV.S * Z, Sq = Math.sqrt(3);
+ TCx.setTransform(TV.D, 0, 0, TV.D, 0, 0); TCx.fillStyle = '#0a0d1b'; TCx.fillRect(0, 0, W, H);
+ const Rmin = Math.floor((TV.Y - H / 2 / Z) / (TV.S * 1.5)) - 1, Rmax = Math.ceil((TV.Y + H / 2 / Z) / (TV.S * 1.5)) + 1;
+ TCx.textAlign = 'center'; TCx.textBaseline = 'middle'; TCx.lineJoin = 'round';
+ for(let R = Rmin; R <= Rmax; R++){
+  const Qmin = Math.floor((TV.X - W / 2 / Z) / (TV.S * Sq) - R / 2) - 1, Qmax = Math.ceil((TV.X + W / 2 / Z) / (TV.S * Sq) - R / 2) + 1;
+  for(let Q = Qmin; Q <= Qmax; Q++){
+   const Own = Owned(Q, R), Op = IsOpen(Q, R), My = IsMystery(Q, R); if(!Own && !Op && !My) continue;
+   const Cx = W / 2 + (TV.S * Sq * (Q + R / 2) - TV.X) * Z, Cy = H / 2 + TV.Oy + (TV.S * 1.5 * R - TV.Y) * Z, Sel = TV.Sel && TV.Sel[0] === Q && TV.Sel[1] === R;
+   HexPath(Cx, Cy, S * .96);
+   if(My){TCx.fillStyle = '#131830'; TCx.fill(); TCx.lineWidth = Sel ? 4 : 2; TCx.strokeStyle = Sel ? '#fff' : '#2a3158'; TCx.stroke(); TCx.fillStyle = '#3b4573'; TCx.font = '700 ' + S * .6 + 'px sans-serif'; TCx.fillText('?', Cx, Cy); continue}
+   const N = NodeAt(Q, R), L = LvOf(Q, R), Col = N.Kind === 'elem' ? Elems[N.Key].Color : N.Col, Max = N.Kind !== 'core' && L >= N.Max;
+   TCx.globalAlpha = Own ? 1 : .55; TCx.fillStyle = Col; TCx.fill(); TCx.globalAlpha = 1; TCx.fillStyle = Own ? 'rgba(0,0,0,.22)' : 'rgba(0,0,0,.5)'; TCx.fill();
+   HexPath(Cx, Cy, S * .8); TCx.fillStyle = Col; TCx.globalAlpha = Own ? .95 : .4; TCx.fill(); TCx.globalAlpha = 1;
+   HexPath(Cx, Cy, S * .96); TCx.lineWidth = Sel ? 5 : 3; TCx.strokeStyle = Sel ? '#4ff0d6' : (Op && Meta.Shards >= NodeCost(N, 0) ? '#ffd54a' : '#e8ecff'); TCx.stroke();
+   TCx.fillStyle = '#fff';
+   if(N.Kind === 'elem'){TCx.fillStyle = '#0b1020'; ElemShape(Cx, Cy - S * .12, S * .3, N.Key)} else{TCx.font = '700 ' + S * .5 + 'px sans-serif'; TCx.fillText(N.G, Cx, Cy - S * .1)}
+   if(S > 30){
+    TCx.fillStyle = '#fff'; TCx.font = '700 ' + S * .2 + 'px sans-serif'; TCx.fillText(N.N.length > 13 ? N.N.slice(0, 12) + '…' : N.N, Cx, Cy + S * .32);
+    if(N.Kind !== 'core'){TCx.fillStyle = Max ? '#7dffa6' : (Own ? '#fff' : (Meta.Shards >= NodeCost(N, L) ? '#ffe28a' : '#9aa3c7')); TCx.fillText(Max ? 'MAX' : (Own ? L + '/' + N.Max + ' · ◆' + NodeCost(N, L) : '◆ ' + NodeCost(N, L)), Cx, Cy + S * .53)}
+   }
+  }
+ }
+}
+function TreeLoop(){if(!TV.On) return; TreeDraw(); TV.Raf = requestAnimationFrame(TreeLoop)}
+function TreePick(CX, CY){
+ const WX = (CX - TV.W / 2) / TV.Z + TV.X, WY = (CY - TV.H / 2 - TV.Oy) / TV.Z + TV.Y, Qf = (Math.sqrt(3) / 3 * WX - WY / 3) / TV.S, Rf = (2 / 3 * WY) / TV.S;
+ let Q = Math.round(Qf), R = Math.round(Rf), Sf = -Qf - Rf, S = Math.round(Sf); const dQ = Math.abs(Q - Qf), dR = Math.abs(R - Rf), dS = Math.abs(S - Sf);
+ if(dQ > dR && dQ > dS) Q = -R - S; else if(dR > dS) R = -Q - S;
+ TV.Sel = (Owned(Q, R) || IsOpen(Q, R) || IsMystery(Q, R)) ? [Q, R] : null; TreeInfo();
+}
+TCv.addEventListener('pointerdown', E => {TCv.setPointerCapture(E.pointerId); TV.Ptr.set(E.pointerId, {x: E.clientX, y: E.clientY, sx: E.clientX, sy: E.clientY}); if(TV.Ptr.size === 1) TV.Moved = false; if(TV.Ptr.size === 2){const [A, B] = [...TV.Ptr.values()]; TV.Pinch = Math.hypot(A.x - B.x, A.y - B.y)}});
+TCv.addEventListener('pointermove', E => {
+ const P = TV.Ptr.get(E.pointerId); if(!P) return; const Dx = E.clientX - P.x, Dy = E.clientY - P.y; P.x = E.clientX; P.y = E.clientY;
+ if(TV.Ptr.size === 1){if(Math.hypot(E.clientX - P.sx, E.clientY - P.sy) > 6) TV.Moved = true; if(TV.Moved){TV.X -= Dx / TV.Z; TV.Y -= Dy / TV.Z}}
+ else if(TV.Ptr.size === 2){const [A, B] = [...TV.Ptr.values()], D = Math.hypot(A.x - B.x, A.y - B.y); if(TV.Pinch) TV.Z = Clamp(TV.Z * D / TV.Pinch, .45, 2.4); TV.Pinch = D; TV.Moved = true}
+});
+const TreeUp = E => {const P = TV.Ptr.get(E.pointerId); TV.Ptr.delete(E.pointerId); if(P && !TV.Moved && TV.Ptr.size === 0 && E.type === 'pointerup') TreePick(E.clientX, E.clientY); if(TV.Ptr.size < 2) TV.Pinch = 0};
+TCv.addEventListener('pointerup', TreeUp); TCv.addEventListener('pointercancel', TreeUp);
+TCv.addEventListener('wheel', E => {E.preventDefault(); TV.Z = Clamp(TV.Z * (E.deltaY < 0 ? 1.1 : .9), .45, 2.4)}, {passive: false});
+TVEl.addEventListener('click', E => {
+ const B = E.target.closest('button'); if(!B) return;
+ if(B.id === 'TreeExit') TreeClose();
+ else if(B.dataset.z) TV.Z = Clamp(TV.Z * (B.dataset.z === '1' ? 1.2 : .83), .45, 2.4);
+ else if(B.dataset.tb && TV.Sel){for(let K = 0; K < +B.dataset.tb; K++) if(!TreeBuyNode(TV.Sel[0], TV.Sel[1])) break; TreeInfo()}
+});
+addEventListener('resize', () => {if(TV.On) TreeResize()});
+Ui.addEventListener('click', Ev => {const B = Ev.target.closest('button'); if(B && B.dataset.act === 'treeopen'){TreeOpen(); Ev.stopImmediatePropagation()}}, true);
+MigrateTree();
+
+function TreeBuy(){return false}
 
 /* ---------- v11: multiplayer — party-based online co-op (host-authoritative, WebRTC) ----------
    The host runs the whole game for up to 4 players; guests send inputs and draw what the host sends.
@@ -2384,7 +2629,6 @@ async function GetIce(){
  try{const R = await fetch(FirebaseOptions.turnUrl, {method: 'POST'}), J = await R.json(); if(J && Array.isArray(J.iceServers) && J.iceServers.length){IceCache = {iceServers: J.iceServers}; IceAt = Date.now(); return IceCache}}catch(Err){}
  return Base;
 }
-const CleanUp = U => {const O = {}; for(const N of Tree){const V = U && Number.isFinite(U[N.K]) ? Math.floor(U[N.K]) : 0; if(V > 0) O[N.K] = Math.min(300, V)} return O};
 const FreshCfg = () => ({name: (Acct ? PublicName() : 'My') + ' party', public: false, max: 4, mode: SelMode, diff: SelDiff, mut: Object.assign({}, Mut)});
 
 /* ----- multi-target helpers used by the patched simulation ----- */
@@ -2399,9 +2643,9 @@ const RemoteBy = U => Party.Remotes.find(R => R.Uid === U) || null;
 const CamT = () => Player.Down ? ((Party.Host ? (Party.Remotes.find(R => R.Alive) || {}).P : Party.Others.find(O => O.Al)) || Player) : Player;
 var CurOwner = null;
 function AsPlayer(R, Fn){
- const sP = Player, sS = Stats, sE = Elem, sL = LastElem, sA = Aim, sO = CurOwner, sM = Muting, sU = Meta.Up;
- Player = R.P; Stats = R.S; Elem = R.E; LastElem = R.Last || LastElem; Aim = R.In.a || 0; CurOwner = R.Uid; Muting = true; if(R.Up) Meta.Up = R.Up;
- try{return Fn()}finally{R.Last = LastElem; Player = sP; Stats = sS; Elem = sE; LastElem = sL; Aim = sA; CurOwner = sO; Muting = sM; Meta.Up = sU}
+ const sP = Player, sS = Stats, sE = Elem, sL = LastElem, sA = Aim, sO = CurOwner, sM = Muting, sU = Meta.Tree;
+ Player = R.P; Stats = R.S; Elem = R.E; LastElem = R.Last || LastElem; Aim = R.In.a || 0; CurOwner = R.Uid; Muting = true; if(R.Tree) Meta.Tree = R.Tree;
+ try{return Fn()}finally{R.Last = LastElem; Player = sP; Stats = sS; Elem = sE; LastElem = sL; Aim = sA; CurOwner = sO; Muting = sM; Meta.Tree = sU}
 }
 function HurtRemote(R, Amount, Src){
  if(!R.Alive || R.P.Inv > 0 || Mode !== 'play') return;
@@ -2511,7 +2755,7 @@ function MakeConn(pc, Uid){
 function WireChannel(C, Ch, IsHost){
  if(Ch.label === 'ctl') C.ctl = Ch; else C.dat = Ch;
  Ch.onmessage = E => {C.Last = performance.now(); let M; try{M = JSON.parse(E.data)}catch(Err){return} IsHost ? HostMsg(C.Uid, M) : GuestMsg(M)};
- Ch.onopen = () => {if(!IsHost && Ch.label === 'ctl') C.Send({t: 'hello', n: PublicName(), up: Meta.Up})};
+ Ch.onopen = () => {if(!IsHost && Ch.label === 'ctl') C.Send({t: 'hello', n: PublicName(), tr: TM()})};
  Ch.onclose = () => {if(Ch.label === 'ctl'){if(IsHost) HostDrop(C.Uid); else if(Party.Guest === C) GuestLost('The host closed the connection.')}};
 }
 function PartySend(U, O, Fast){const C = Party.Conns[U]; if(C) C.Send(O, Fast)}
@@ -2541,7 +2785,7 @@ const FreeElem = Uid => ElemNames.find(N => !LockedElems(Uid).has(N)) || null;
 function HostMsg(U, m){
  const C = Party.Conns[U]; if(!C || !m) return;
  if(m.t === 'hello'){
-  if(C.Hello) return; C.Hello = true; if(Fb && Party.Code){try{Fb.F.deleteDoc(Fb.F.doc(Fb.db, 'parties', Party.Code, 'peers', U)).catch(() => {})}catch(Err){}} C.Up = CleanUp(m.up); C.Name = SafeName(m.n || C.Name);
+  if(C.Hello) return; C.Hello = true; if(Fb && Party.Code){try{Fb.F.deleteDoc(Fb.F.doc(Fb.db, 'parties', Party.Code, 'peers', U)).catch(() => {})}catch(Err){}} C.Tree = CleanTree(m.tr); C.Name = SafeName(m.n || C.Name);
   const Res = Party.Reserved, Mem = Party.Members, Already = Mem.some(x => x.Uid === U);
   let Why = '';
   if(Party.State !== 'lobby') Why = 'This party already started.';
@@ -2672,8 +2916,8 @@ function GuestBegin(m){
 }
 function GuestSnap(m){
  if(!Player || Party.State !== 'play') return;
- if(m.dg !== Party.GDG){Party.GDG = m.dg; GenDungeon(m.sd); Dg.Seen.fill(0); GEn.clear(); const Me = m.pl.find(p => p[0] === Acct.uid); if(Me){Player.X = Me[1]; Player.Y = Me[2]; Camera.X = Player.X; Camera.Y = Player.Y}}
- if(m.ch) m.ch.forEach((V, I) => {if(Dg.Chests[I]) Dg.Chests[I].Open = !!V});
+ if(m.dg !== Party.GDG){Party.GDG = m.dg; GenDungeon(m.sd); GEn.clear(); const Me = m.pl.find(p => p[0] === Acct.uid); if(Me){Player.X = Me[1]; Player.Y = Me[2]; Camera.X = Player.X; Camera.Y = Player.Y}}
+ if(m.ch) Dg.Chests = m.ch.map(a => ({X: a[0], Y: a[1], Open: !!a[2]}));
  Round = m.r; RoundTime = m.rt; Diff = m.df; Obj = {Type: m.ob[0], Have: m.ob[1], Need: m.ob[2], Done: !!m.ob[3]}; Player.Level = m.lv; Player.Xp = m.xp; RunStats.Kills = m.k; RunStats.Time = m.tm; EventKey = m.ev || null;
  Zone = m.z ? {X: m.z[0], Y: m.z[1], R: m.z[2]} : null; Crystals = (m.cr || []).map(a => ({X: a[0], Y: a[1], Phase: a[0] % 6, Got: !!a[2]}));
  Meteor = (m.mt || []).map(a => ({X: a[0], Y: a[1], T: a[2], R: a[3]}));
@@ -2705,7 +2949,7 @@ function GuestUpdate(Dt){
  let Mx = (Keys['d'] || Keys['arrowright'] ? 1 : 0) - (Keys['a'] || Keys['arrowleft'] ? 1 : 0), My = (Keys['s'] || Keys['arrowdown'] ? 1 : 0) - (Keys['w'] || Keys['arrowup'] ? 1 : 0);
  if(Joys.Move){Mx += Joys.Move.Dx / JoyRadius; My += Joys.Move.Dy / JoyRadius}
  let Len = Math.hypot(Mx, My); if(Len > 1){Mx /= Len; My /= Len}
- const Speed = Down ? 0 : EffSpeed();
+ const Speed = Down ? 0 : EffSpeed() * TerrainMul(Player.X, Player.Y);
  MoveW(Player, (Mx * Speed + Player.KnockX) * Dt, (My * Speed + Player.KnockY) * Dt, PlayerRadius);
  Player.KnockX *= Math.max(0, 1 - 9 * Dt); Player.KnockY *= Math.max(0, 1 - 9 * Dt); Player.Recoil = Math.max(0, Player.Recoil - Dt * 8);
  Player.DashCd = Math.max(0, (Player.DashCd || 0) - Dt); Player.NovaCd = Math.max(0, (Player.NovaCd || 0) - Dt); Player.Cooldown -= Dt; Party.DashT = Math.max(0, (Party.DashT || 0) - Dt);
@@ -2741,7 +2985,7 @@ function PartyHostTick(Dt){
   const I = R.In; R.P.Inv -= Dt; R.P.Cooldown -= Dt; R.P.NovaCd = Math.max(0, (R.P.NovaCd || 0) - Dt);
   if(R.Pending > 0 && !R.Offers) PartyOffersFor(R);
   if(!R.Alive) continue;
-  if(I.g === Party.DGen && !HitW(I.x, I.y, PlayerRadius)){R.P.X = Clamp(I.x, PlayerRadius, Arena - PlayerRadius); R.P.Y = Clamp(I.y, PlayerRadius, Arena - PlayerRadius)}
+  if(I.g === Party.DGen && !HitW(I.x, I.y, PlayerRadius)){R.P.X = I.x; R.P.Y = I.y}
   if(I.i) R.P.Inv = Math.max(R.P.Inv, .15);
   R.P.Hp = Math.min(R.S.MaximumHealth, R.P.Hp + R.S.Regeneration * Dt);
   if(I.f && R.P.Cooldown <= 0) AsPlayer(R, () => Volley(null));
@@ -2767,7 +3011,7 @@ function PartySnapshots(){
   }
   if(ns.length) C.Send({t: 'ne', a: ns});
   const Near = (X, Y, Rd) => Math.abs(X - cx) < Rd && Math.abs(Y - cy) < Rd;
-  C.Send({t: 's', sd: Dg.Seed, dg: Party.DGen || 0, ch: Dg.Chests.map(c => c.Open ? 1 : 0), r: Round, rt: Math.round(RoundTime * 10) / 10, df: +Diff.toFixed(2), ob: [Obj.Type, Math.round(Obj.Have * 10) / 10, Obj.Need, Obj.Done ? 1 : 0], lv: R.P.Level, xp: Math.round(R.P.Xp), k: RunStats.Kills, tm: Math.round(RunStats.Time), ev: EventKey, z: Zone ? [Math.round(Zone.X), Math.round(Zone.Y), Zone.R] : null,
+  C.Send({t: 's', sd: Dg.Seed, dg: Party.DGen || 0, ch: Dg.Chests.filter(c => Math.abs(c.X - cx) < 1500 && Math.abs(c.Y - cy) < 1500).slice(0, 30).map(c => [Math.round(c.X), Math.round(c.Y), c.Open ? 1 : 0]), r: Round, rt: Math.round(RoundTime * 10) / 10, df: +Diff.toFixed(2), ob: [Obj.Type, Math.round(Obj.Have * 10) / 10, Obj.Need, Obj.Done ? 1 : 0], lv: R.P.Level, xp: Math.round(R.P.Xp), k: RunStats.Kills, tm: Math.round(RunStats.Time), ev: EventKey, z: Zone ? [Math.round(Zone.X), Math.round(Zone.Y), Zone.R] : null,
    cr: Crystals.map(c => [Math.round(c.X), Math.round(c.Y), c.Got ? 1 : 0]), mt: Meteor.map(m => [Math.round(m.X), Math.round(m.Y), +m.T.toFixed(2), m.R]), pl: Pl, en,
    bl: Bolts.filter(b => Near(b.X, b.Y, 900)).slice(0, 150).map(b => [Math.round(b.X), Math.round(b.Y), Math.round(b.Vx), Math.round(b.Vy), Math.max(0, ElemNames.indexOf(b.Elem)), +b.Size.toFixed(1), b.Crit ? 1 : 0]),
    eb: EnemyBolts.filter(b => Near(b.X, b.Y, 900)).slice(0, 120).map(b => [Math.round(b.X), Math.round(b.Y), Math.round(b.Vx), Math.round(b.Vy)]),
@@ -2779,16 +3023,16 @@ function PartySnapshots(){
 function PartyStart(){
  if(Party.State !== 'lobby' || Party.Members.length < 2 || !Party.Members.every(M => M.Ready)) return;
  Party.State = 'play'; Party.Ready = false;
- const Cfg = Party.Cfg, sv = {Up: Meta.Up, SelElem, SelMode, SelDiff, Mut}, Sav = Party.Save;
+ const Cfg = Party.Cfg, sv = {Tree: Meta.Tree, SelElem, SelMode, SelDiff, Mut}, Sav = Party.Save;
  SelMode = Cfg.mode; SelDiff = Cfg.diff; Mut = Object.assign({}, Cfg.mut); Party.Remotes = []; Party.Names = {}; GEn.clear();
  for(const Mm of Party.Members) Party.Names[Mm.Uid] = Mm.Name;
  for(const Mm of Party.Members.filter(x => !x.Host)){
-  const C = Party.Conns[Mm.Uid]; Meta.Up = C ? C.Up : {}; SelElem = Mm.Elem; NewRun();
-  const R = {Uid: Mm.Uid, Name: Mm.Name, P: Player, S: Stats, E: Elem, Last: LastElem, In: {x: Player.X, y: Player.Y, a: 0, f: 0, i: 0, n: 0}, Alive: true, Pending: Pending, Rerolls: Rerolls, Offers: null, WaitT: 0, NovaSeen: 0, Elem0: Mm.Elem, Up: C ? C.Up : {}};
+  const C = Party.Conns[Mm.Uid]; Meta.Tree = C && C.Tree ? C.Tree : CleanTree(null); SelElem = Mm.Elem; NewRun();
+  const R = {Uid: Mm.Uid, Name: Mm.Name, P: Player, S: Stats, E: Elem, Last: LastElem, In: {x: Player.X, y: Player.Y, a: 0, f: 0, i: 0, n: 0}, Alive: true, Pending: Pending, Rerolls: Rerolls, Offers: null, WaitT: 0, NovaSeen: 0, Elem0: Mm.Elem, Tree: C && C.Tree ? C.Tree : null};
   const Sv = Sav && Sav.Members.find(x => x.Uid === Mm.Uid); if(Sv){Object.assign(R.S, Sv.S); R.E = Object.assign({}, Sv.E); R.P.Hp = R.S.MaximumHealth}
   Party.Remotes.push(R);
  }
- Meta.Up = sv.Up; SelElem = Party.Members[0].Elem; NewRun();
+ Meta.Tree = sv.Tree; SelElem = Party.Members[0].Elem; NewRun();
  if(Sav){const H = Sav.Members.find(x => x.Uid === Acct.uid); if(H){Object.assign(Stats, H.S); Elem = Object.assign({}, H.E); Player.Hp = Stats.MaximumHealth} Player.Level = Sav.Level; Player.Xp = Sav.Xp; Round = Sav.Round; StartRound()}
  SelMode = sv.SelMode; SelDiff = sv.SelDiff; Mut = sv.Mut; SelElem = sv.SelElem;
  for(const R of Party.Remotes){R.In.x = R.P.X; R.In.y = R.P.Y; R.In.g = Party.DGen}

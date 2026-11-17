@@ -661,3 +661,14 @@ body.GateOn #UiLayer { visibility:hidden; }
 .TName { font-weight:700; font-size:14px; display:flex; justify-content:space-between; gap:6px; } .TName b { color:var(--Cyan); font-size:12px; }
 .TEff { font-size:12px; color:var(--Dim); } .TCost { font-size:12px; font-weight:700; color:var(--Amber); }
 @media (max-height:520px) { .TreeScroll { max-height:60vh; } .TNode { padding:5px 8px; } .TEff { display:none; } #UpBadge { bottom:calc(84px + env(safe-area-inset-bottom)); } }
+
+#TreeView { position:fixed; left:0; top:0; width:var(--app-w,100%); height:var(--app-h,100%); z-index:40; display:none; background:#0a0d1b; }
+#TreeView.On { display:block; } #TreeCv { display:block; touch-action:none; cursor:grab; }
+#TreeShards { position:absolute; left:14px; top:calc(12px + env(safe-area-inset-top)); font:700 20px/1 inherit; color:var(--Amber); text-shadow:0 2px 6px #000; pointer-events:none; }
+#TreeExit { position:absolute; left:50%; bottom:calc(14px + env(safe-area-inset-bottom)); transform:translateX(-50%); font:700 22px inherit; font-family:inherit; color:#fff; background:linear-gradient(#ff5470,#d3203f); border:3px solid #fff; border-radius:14px; padding:8px 40px; cursor:pointer; box-shadow:0 4px 0 #8e1428; }
+#TreeInfo { position:absolute; left:50%; bottom:calc(78px + env(safe-area-inset-bottom)); transform:translateX(-50%); width:min(94vw,560px); box-sizing:border-box; padding:10px 14px; border-radius:14px; background:rgba(14,18,42,.95); border:1px solid #2a3166; text-align:center; font-size:14px; }
+#TreeInfo .TI { color:var(--Dim); font-size:13px; } #TreeInfo b { color:var(--Ink); } .TB { display:flex; gap:8px; justify-content:center; margin-top:8px; }
+.TB button { font:inherit; font-weight:700; color:#07131a; background:linear-gradient(135deg,#4ff0d6,#8bf7e6); border:0; border-radius:10px; padding:8px 16px; cursor:pointer; } .TB button:disabled { opacity:.35; cursor:not-allowed; }
+#TreeZoom { position:absolute; right:14px; top:calc(12px + env(safe-area-inset-top)); display:flex; flex-direction:column; gap:8px; }
+#TreeZoom button { width:42px; height:42px; font:700 22px inherit; font-family:inherit; color:#fff; background:#1b2140; border:2px solid #2a3166; border-radius:12px; cursor:pointer; }
+@media (max-height:520px) { #TreeInfo { bottom:calc(64px + env(safe-area-inset-bottom)); padding:6px 10px; font-size:12px; } #TreeExit { padding:6px 30px; font-size:18px; } }
